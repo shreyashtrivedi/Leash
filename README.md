@@ -59,14 +59,14 @@ The AI has two real jobs, and neither of them enforces anything.
 - **Policy authoring:** "ask me above $20, never more than $45 at once, never for gambling" becomes structured rules. The model's output is validated, and the human reviews it before it counts. Plain code flags any draft that raises a limit or turns off the verified vendors rule, so a misleading instruction can't hide in a long draft.
 - **Decision summaries:** blocked and held payments get a short plain-English summary. It's written after the decision is final, and if the AI fails, Leash carries on with the rule's own reason.
 
-The default model is `openai/gpt-oss-20b` on Groq, with structured JSON output. Set `AI_PROVIDER`, `AI_API_KEY` and `AI_MODEL` to configure it. A new provider is one entry in [client.ts](server/src/ai/client.ts).
+The default model is `openai/gpt-oss-120b` on Groq, with structured JSON output. Set `AI_PROVIDER`, `AI_API_KEY` and `AI_MODEL` to configure it. A new provider is one entry in [client.ts](server/src/ai/client.ts).
 
 **Without an AI key, enforcement works exactly the same.** You lose drafting, summaries and the demo agent button.
 
 ## Why it's safe to trust
 
 - **Agents never hold PayPal credentials.** The stdio bridge carries only a Leash key.
-- **Deterministic engine.** A pure function, with 124 tests across the project covering exact limits, multiple failures and budget exhaustion.
+- **Deterministic engine.** A pure function, with over 130 tests across the project covering exact limits, multiple failures and budget exhaustion.
 - **Agent claims aren't trusted.** Leash keeps its own vendor records, so labelling a casino as "software" gets blocked.
 - **The AI can't be talked into anything.** Agent memos never reach the model, because an agent could use one to steer the summary. Approval cards label the memo as the agent's unverified claim.
 - **Human approval can't override a block.** It only clears the auto-approve limit, and the policy is re-checked at approval time.
@@ -183,7 +183,7 @@ Each agent has its own API key and policy: per-payment cap, auto-approve limit, 
 - **Non-USD limits use fixed demo rates.** The demo policies allow USD only.
 - **The hash chain is tamper-evident, not tamper-proof.** It detects edits and gaps, but someone who rewrites the whole database and every hash wouldn't be caught.
 - **The hosted database resets on restart.** Render's free disk is temporary, so agents and policies re-seed on boot. Entries marked **Sample** are illustrative, have no PayPal IDs and never count towards budgets.
-- **The demo agent's task names a preference.** It's told to try the annual plan first, otherwise it reads its limits and skips straight to the cheaper plan. The block that follows is still real, and the agent's code contains no Leash rules.
+- **The demo agent's task names a preference.** It's told to try the annual plan first, otherwise it reads its limits and skips straight to the cheaper plan. The block that follows is still real, and the agent's code contains no Leash rules. Models vary between runs, so the run summary is built from real results rather than the model's words.
 - **Free AI quota.** Groq's limits aren't guaranteed, so summaries may be missing under heavy use. Payments are unaffected. Don't put private information in the policy box, because it's sent to the AI provider.
 
 ## License

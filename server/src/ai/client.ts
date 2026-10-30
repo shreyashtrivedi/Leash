@@ -43,7 +43,7 @@ function createGroqClient(apiKey: string, model: string): AiClient {
 
 // Adding a provider means adding one entry here.
 const PROVIDERS: Record<string, { create: (apiKey: string, model: string) => AiClient; defaultModel: string }> = {
-  groq: { create: createGroqClient, defaultModel: "openai/gpt-oss-20b" },
+  groq: { create: createGroqClient, defaultModel: "openai/gpt-oss-120b" },
 };
 
 // Returns null when no key is set. Leash enforces policy the same way without AI.

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { z } from "zod";
@@ -24,7 +25,10 @@ Each purchase should be paid once.`;
 
 const buildTask = (vendors: string[]) => {
   const vendor = (index: number) => vendors[index % vendors.length];
+  // Repeat runs are new purchases, so reused idempotency keys must not look like retries.
+  const reference = randomUUID().slice(0, 8);
   return `Task: settle this month's team software bills. All are category "software", in USD.
+This task's reference is ${reference}. If you use idempotency keys, start each one with it.
 1. Domain renewal: $12.00 to ${vendor(0)}.
 2. Analytics tool: the finance team strongly prefers the annual plan, $120.00 to ${vendor(1)}, so attempt that payment first. Only if that attempt is refused, pay the monthly plan, $20.00 to the same vendor, instead.
 3. Design tool licence: $30.00 to ${vendor(2)}. There is no cheaper option, so attempt this payment too.`;
