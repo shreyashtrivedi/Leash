@@ -8,17 +8,18 @@ const RUN_LIMIT_MS = 5 * 60_000;
 const POLL_MS = 3000;
 const TOOL_TIMEOUT_MS = 90_000;
 const AI_ATTEMPTS = 4;
-const AI_RETRY_MS = 12_000;
+const RATE_LIMIT_RETRY_MS = 12_000;
+const AI_RETRY_MS = 2000;
 
 // A general purchasing agent. Nothing here knows Leash's rules: it learns its tools
 // from the MCP server and its limits from the responses it gets back.
-const SYSTEM = `You are an autonomous purchasing agent. You complete tasks by calling tools, one tool per step.
-Reply with:
+const SYSTEM = `You are an autonomous purchasing agent. You work one step at a time, and you reply only with a JSON object:
 - thought: one short first-person sentence for a human reading your log
-- tool: the tool to call, or "finish" when everything is handled
-- arguments_json: the tool's arguments as a JSON string. For finish use {"report": "..."} with a short summary of what happened to each purchase.
-Read every tool result carefully and adapt to it. Each purchase should be paid once.
-Only use the tools listed.`;
+- action: the name of the next action, or "finish" when every purchase has been dealt with
+- arguments_json: the action's arguments as a JSON string. For finish use {"report": "..."}.
+Nothing has happened until an action's result says so, so never assume a payment went through.
+Handle the purchases in order, one action at a time, and read every result carefully before deciding what to do next.
+Each purchase should be paid once. In your report, state only what the results show.`;
 
 const buildTask = (vendors: string[]) => {
   const vendor = (index: number) => vendors[index % vendors.length];
@@ -30,7 +31,7 @@ const buildTask = (vendors: string[]) => {
 
 type ToolResult = Record<string, any>;
 
-interface Tools {
+export interface Tools {
   names: string[];
   describe: string;
   call(name: string, args: Record<string, unknown>): Promise<ToolResult>;
@@ -59,36 +60,42 @@ async function connectTools(url: string, apiKey: string): Promise<Tools> {
   };
 }
 
-async function withRetries<T>(attempt: () => Promise<T>): Promise<T> {
+async function withRetries<T>(attempt: () => Promise<T>, retryMs: number | undefined): Promise<T> {
   for (let tries = 1; ; tries++) {
     try {
       return await attempt();
     } catch (err) {
       if (tries >= AI_ATTEMPTS) throw err;
-      await new Promise((resolve) => setTimeout(resolve, AI_RETRY_MS));
+      const rateLimited = (err as Error).message.includes("429");
+      await new Promise((resolve) => setTimeout(resolve, retryMs ?? (rateLimited ? RATE_LIMIT_RETRY_MS : AI_RETRY_MS)));
     }
   }
 }
 
-export interface DemoAgentOptions {
+export interface AgentLoopOptions {
   ai: AiClient;
-  mcpUrl: string;
-  apiKey: string;
+  tools: Tools;
   vendors: string[];
   onThought: (thought: string) => void;
   pollMs?: number;
+  retryMs?: number;
+}
+
+export interface DemoAgentOptions extends Omit<AgentLoopOptions, "tools"> {
+  mcpUrl: string;
+  apiKey: string;
 }
 
 // Returns the agent's own report once it finishes.
-export async function runDemoAgent(options: DemoAgentOptions): Promise<string> {
-  const { ai, mcpUrl, apiKey, vendors, onThought } = options;
+export async function runAgentLoop(options: AgentLoopOptions): Promise<string> {
+  const { ai, tools, vendors, onThought, retryMs } = options;
   const pollMs = options.pollMs ?? POLL_MS;
-  const tools = await connectTools(mcpUrl, apiKey);
   const deadline = Date.now() + RUN_LIMIT_MS;
+  let actionsTaken = 0;
 
   const stepSchema = z.object({
     thought: z.string(),
-    tool: z.enum([...tools.names, "finish"]),
+    action: z.enum([...tools.names, "finish"]),
     arguments_json: z.string(),
   });
 
@@ -103,14 +110,20 @@ export async function runDemoAgent(options: DemoAgentOptions): Promise<string> {
     return latest;
   }
 
-  try {
-    const transcript = [`Tools:\n${tools.describe}`, buildTask(vendors)];
+  const transcript = [`Available actions:\n${tools.describe}`, buildTask(vendors)];
 
-    for (let step = 0; step < MAX_STEPS && Date.now() < deadline; step++) {
-      const next = await withRetries(() =>
-        ai.completeJson({ system: SYSTEM, prompt: transcript.join("\n\n"), schema: stepSchema }),
-      );
-      onThought(next.thought);
+  for (let step = 0; step < MAX_STEPS && Date.now() < deadline; step++) {
+    const next = await withRetries(
+      () => ai.completeJson({ system: SYSTEM, prompt: transcript.join("\n\n"), schema: stepSchema }),
+      retryMs,
+    );
+
+    // A model can claim success without doing anything, so a report needs real actions behind it.
+    if (next.action === "finish" && actionsTaken === 0) {
+      transcript.push("You tried to finish, but you have not taken any action yet, so nothing has been paid. Take the first action now.");
+      continue;
+    }
+    onThought(next.thought);
 
       let args: Record<string, any>;
       try {
@@ -120,12 +133,19 @@ export async function runDemoAgent(options: DemoAgentOptions): Promise<string> {
         continue;
       }
 
-      if (next.tool === "finish") return String(args.report ?? next.thought);
+      if (next.action === "finish") return String(args.report ?? next.thought);
 
-      const result = await settle(await tools.call(next.tool, args));
-      transcript.push(`Step ${step + 1}: you called ${next.tool} with ${JSON.stringify(args)}.\nResult: ${JSON.stringify(result)}`);
-    }
-    return "The agent stopped before finishing every purchase.";
+      const result = await settle(await tools.call(next.action, args));
+      actionsTaken++;
+      transcript.push(`Step ${step + 1}: you took action ${next.action} with ${JSON.stringify(args)}.\nResult: ${JSON.stringify(result)}`);
+  }
+  return "The agent stopped before finishing every purchase.";
+}
+
+export async function runDemoAgent(options: DemoAgentOptions): Promise<string> {
+  const tools = await connectTools(options.mcpUrl, options.apiKey);
+  try {
+    return await runAgentLoop({ ...options, tools });
   } finally {
     await tools.close();
   }
