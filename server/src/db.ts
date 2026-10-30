@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
 import Database from "better-sqlite3";
 import type { Policy, RecipientRecord, RuleResult } from "./policy/types.js";
 
@@ -17,6 +18,19 @@ export interface Agent {
   name: string;
   policy: Policy;
 }
+
+export interface AuditEvent {
+  id: number;
+  at: string;
+  agent_id: string | null;
+  payment_id: string | null;
+  type: string;
+  summary: string;
+  sample: number;
+}
+
+// Every audit write is announced here, which is what feeds the live timeline.
+export const auditBus = new EventEmitter().setMaxListeners(0);
 
 export interface PaymentRow {
   id: string;
@@ -82,7 +96,8 @@ export function openDb(path: string): Db {
       agent_id TEXT,
       payment_id TEXT,
       type TEXT NOT NULL,
-      summary TEXT NOT NULL
+      summary TEXT NOT NULL,
+      sample INTEGER NOT NULL DEFAULT 0
     );
   `);
   return db;
@@ -123,17 +138,32 @@ export function getRecipient(db: Db, email: string): RecipientRecord | null {
   return row ? { verified: row.verified === 1, category: row.category } : null;
 }
 
+export function listAgents(db: Db): Agent[] {
+  const ids = db.prepare("SELECT id FROM agents ORDER BY rowid").pluck().all() as string[];
+  return ids.map((id) => getAgent(db, id)!);
+}
+
+export function saveAgentPolicy(db: Db, id: string, policy: Policy): void {
+  db.prepare("UPDATE agents SET policy = ? WHERE id = ?").run(JSON.stringify(policy), id);
+}
+
 export function addAuditEvent(
   db: Db,
-  event: { agentId: string | null; paymentId: string | null; type: string; summary: string },
+  event: { agentId: string | null; paymentId: string | null; type: string; summary: string; at?: string; sample?: boolean },
 ): void {
-  db.prepare("INSERT INTO audit_events (at, agent_id, payment_id, type, summary) VALUES (?, ?, ?, ?, ?)").run(
-    new Date().toISOString(),
+  db.prepare("INSERT INTO audit_events (at, agent_id, payment_id, type, summary, sample) VALUES (?, ?, ?, ?, ?, ?)").run(
+    event.at ?? new Date().toISOString(),
     event.agentId,
     event.paymentId,
     event.type,
     event.summary,
+    event.sample ? 1 : 0,
   );
+  auditBus.emit("event");
+}
+
+export function listAuditEvents(db: Db, limit: number): AuditEvent[] {
+  return db.prepare("SELECT * FROM audit_events ORDER BY at DESC, id DESC LIMIT ?").all(limit) as AuditEvent[];
 }
 
 export const parseRuleResults = (row: PaymentRow): RuleResult[] => JSON.parse(row.rule_results);

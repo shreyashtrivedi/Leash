@@ -172,7 +172,7 @@ export function createPaymentService(
     audit(
       row,
       `decision.${evaluation.decision.toLowerCase()}`,
-      `${evaluation.decision}: ${row.amount} ${row.currency} to ${row.recipient}${failures.length ? ` (${failures.join("; ")})` : ""}`,
+      `${row.amount} ${row.currency} to ${row.recipient}${failures.length ? `: ${failures.join("; ")}` : ""}`,
     );
   }
 
@@ -235,6 +235,7 @@ export function createPaymentService(
 
   async function execute(id: string) {
     const row = getRow(id)!;
+    audit(row, "payment.sending", `Sending ${row.amount} ${row.currency} to ${row.recipient} through PayPal`);
     const batchId = await createPayout(row);
     if (!batchId) return;
     setFields(id, { payout_batch_id: batchId });
@@ -299,10 +300,24 @@ export function createPaymentService(
       return toResult(resolved.row);
     },
 
-    listPendingApprovals(): PaymentRow[] {
-      return db
+    listPendingApprovals() {
+      const rows = db
         .prepare("SELECT * FROM payments WHERE status = 'pending_approval' ORDER BY created_at")
         .all() as PaymentRow[];
+      return rows.map((row) => ({ ...row, rule_results: parseRuleResults(row) }));
+    },
+
+    // Real spend only: sample history lives in the audit log and never touches budgets.
+    spendSummary(agent: Agent) {
+      const { spentTodayCents, spentTotalCents, paymentsLastHour } = spendContext(agent.id, "", false);
+      const { policy } = agent;
+      return {
+        spentTodayCents,
+        spentTotalCents,
+        paymentsLastHour,
+        remainingTodayCents: Math.max(policy.dailyBudgetCents - spentTodayCents, 0),
+        remainingTotalCents: Math.max(policy.totalBudgetCents - spentTotalCents, 0),
+      };
     },
   };
 }

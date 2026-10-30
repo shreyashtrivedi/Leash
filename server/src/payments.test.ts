@@ -268,6 +268,7 @@ describe("payment service", () => {
     const types = db.prepare("SELECT type FROM audit_events ORDER BY id").pluck().all();
     expect(types).toEqual([
       "decision.allow",
+      "payment.sending",
       "payment.executed",
       "decision.deny",
       "decision.require_approval",

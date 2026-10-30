@@ -4,11 +4,14 @@
   "private": true,
   "license": "MIT",
   "workspaces": [
-    "server"
+    "server",
+    "client"
   ],
   "scripts": {
     "test": "npm test --workspace server",
     "typecheck": "npm run typecheck --workspace server",
-    "dev": "npm run dev --workspace server"
+    "dev": "node dev.mjs",
+    "build": "npm run build --workspace client",
+    "start": "npm start --workspace server"
   }
 }

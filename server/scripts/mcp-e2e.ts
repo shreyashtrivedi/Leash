@@ -35,6 +35,7 @@ async function run(label: string, client: Client) {
   const { tools } = await client.listTools();
   console.log(`[${label}] tools:`, tools.map((tool) => tool.name).join(", "));
 
+  console.log(`[${label}] spend summary:`, await call(client, "get_spend_summary", {}));
   console.log(`[${label}] small payment:`, await call(client, "pay", payment("1.10")));
   console.log(`[${label}] over cap:`, await call(client, "pay", payment("120.00")));
   console.log(`[${label}] unverified recipient:`, await call(client, "pay", {

@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Agent } from "../db.js";
 import type { PaymentService } from "../payments.js";
+import { formatUsd } from "../policy/money.js";
 
 const respond = (result: Record<string, unknown>) => ({
   content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
@@ -52,6 +53,36 @@ export function createMcpServer(agent: Agent, payments: PaymentService): McpServ
           reason: `No payment or approval ${approval_id} exists for this agent.`,
         },
       ),
+  );
+
+  server.registerTool(
+    "get_spend_summary",
+    {
+      title: "Get spend summary",
+      description: "See remaining budget, spend today and the active policy, so you can plan within your limits.",
+      inputSchema: {},
+    },
+    async () => {
+      const spend = payments.spendSummary(agent);
+      const { policy } = agent;
+      return respond({
+        status: "ok",
+        spent_today: formatUsd(spend.spentTodayCents),
+        remaining_today: formatUsd(spend.remainingTodayCents),
+        remaining_total: formatUsd(spend.remainingTotalCents),
+        payments_last_hour: spend.paymentsLastHour,
+        policy: {
+          per_transaction_cap: formatUsd(policy.perTransactionCapCents),
+          auto_approve_limit: formatUsd(policy.autoApproveLimitCents),
+          daily_budget: formatUsd(policy.dailyBudgetCents),
+          total_budget: formatUsd(policy.totalBudgetCents),
+          max_payments_per_hour: policy.maxPaymentsPerHour,
+          allowed_currencies: policy.allowedCurrencies,
+          blocked_categories: policy.blockedCategories,
+          verified_recipients_only: policy.requireVerifiedRecipient,
+        },
+      });
+    },
   );
 
   return server;

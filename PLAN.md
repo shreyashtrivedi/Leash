@@ -4,7 +4,7 @@ Leash is a payment firewall for AI agents: an MCP server between any agent and t
 
 **Deadline:** 13 Nov 2026, 1:30 AM IST (12 Nov, noon Pacific). Code and deploy done by 10 Nov, video and text on 11 Nov, submitted on 12 Nov IST.
 
-**Status of this plan:** Stages 1–3 are done (30 Oct). Payouts work end to end through MCP over HTTP and stdio, and show in the sandbox. Invoice create and send also work, after the Invoicing feature was enabled on the app. Refunds are not proven. Section 1 has the results.
+**Status of this plan:** Stages 1–5 are done (30 Oct). Payouts work end to end through MCP over HTTP and stdio, and show in the sandbox. The dashboard is live, with approvals, timeline, AG Grid audit log, policy editor and spend summary. Invoice create and send also work, after the Invoicing feature was enabled on the app. Refunds are not proven. Section 1 has the results.
 
 ### Stage 1 test results
 
