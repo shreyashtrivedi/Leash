@@ -37,7 +37,7 @@ export function DemoPanel({ demo }: { demo: DemoStatus }) {
       )}
       {demo.report && !demo.running && (
         <p className="ai-note">
-          <span>The agent's report</span>
+          <span>What actually happened</span>
           {demo.report}
         </p>
       )}

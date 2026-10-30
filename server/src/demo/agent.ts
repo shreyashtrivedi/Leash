@@ -16,11 +16,11 @@ const AI_RETRY_MS = 2000;
 const SYSTEM = `You are an autonomous purchasing agent. You work one step at a time, and you reply only with a JSON object:
 - thought: one short first-person sentence for a human reading your log
 - action: the name of the next action, or "finish" when every purchase has been dealt with
-- arguments_json: the action's arguments as a JSON string. For finish use {"report": "..."}.
+- arguments_json: the action's arguments as a JSON string. For finish use {}.
 Nothing has happened until an action's result says so, so never assume a payment went through.
 Handle the purchases in order, one action at a time, and read every result carefully before deciding what to do next.
 Attempt every purchase yourself. Never skip one because you expect it to fail or need sign-off: only a result can tell you that.
-Each purchase should be paid once. In your report, state only what the results show.`;
+Each purchase should be paid once.`;
 
 const buildTask = (vendors: string[]) => {
   const vendor = (index: number) => vendors[index % vendors.length];
@@ -87,12 +87,17 @@ export interface DemoAgentOptions extends Omit<AgentLoopOptions, "tools"> {
   apiKey: string;
 }
 
-// Returns the agent's own report once it finishes.
+// The summary is built from real results, never from the model's words, because a
+// model can describe payments that never happened.
+function summarize(outcomes: string[]): string {
+  return outcomes.length > 0 ? outcomes.join(" · ") : "The agent did not attempt any payment.";
+}
+
 export async function runAgentLoop(options: AgentLoopOptions): Promise<string> {
   const { ai, tools, vendors, onThought, retryMs } = options;
   const pollMs = options.pollMs ?? POLL_MS;
   const deadline = Date.now() + RUN_LIMIT_MS;
-  let actionsTaken = 0;
+  const outcomes: string[] = [];
   let reviewed = false;
 
   const stepSchema = z.object({
@@ -121,7 +126,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<string> {
     );
 
     // A model can claim success without doing anything, so a report needs real actions behind it.
-    if (next.action === "finish" && actionsTaken === 0) {
+    if (next.action === "finish" && outcomes.length === 0) {
       transcript.push("You tried to finish, but you have not taken any action yet, so nothing has been paid. Take the first action now.");
       continue;
     }
@@ -142,13 +147,13 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<string> {
         continue;
       }
 
-      if (next.action === "finish") return String(args.report ?? next.thought);
+      if (next.action === "finish") return summarize(outcomes);
 
       const result = await settle(await tools.call(next.action, args));
-      actionsTaken++;
+      if (result.amount) outcomes.push(`${result.amount} ${result.currency}: ${result.status}`);
       transcript.push(`Step ${step + 1}: you took action ${next.action} with ${JSON.stringify(args)}.\nResult: ${JSON.stringify(result)}`);
   }
-  return "The agent stopped before finishing every purchase.";
+  return `The agent stopped before finishing. ${summarize(outcomes)}`;
 }
 
 export async function runDemoAgent(options: DemoAgentOptions): Promise<string> {

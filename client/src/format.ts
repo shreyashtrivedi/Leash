@@ -29,7 +29,7 @@ export const EVENT_LABELS: Record<string, { label: string; tone: Tone; icon: str
   "refund.failed": { label: "Refund failed", tone: "bad", icon: "alert" },
   "invoice.sent": { label: "Invoiced", tone: "good", icon: "paid" },
   "agent.note": { label: "Agent", tone: "neutral", icon: "agent" },
-  "agent.report": { label: "Agent report", tone: "neutral", icon: "agent" },
+  "agent.report": { label: "Run result", tone: "neutral", icon: "agent" },
   "policy.updated": { label: "Policy", tone: "neutral", icon: "shield" },
 };
 
