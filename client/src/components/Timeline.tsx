@@ -26,6 +26,7 @@ export function Timeline({ events }: { events: AuditEvent[] }) {
                 )}
               </p>
               <p className="timeline-summary">{event.summary}</p>
+              {event.explanation && <p className="ai-note"><span>AI summary</span>{event.explanation}</p>}
             </div>
             <time dateTime={event.at}>{formatTime(event.at)}</time>
           </li>

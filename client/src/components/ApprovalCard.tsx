@@ -55,6 +55,8 @@ export function ApprovalCard({ approval, agentName }: { approval: Approval; agen
         </p>
       )}
 
+      {approval.explanation && <p className="ai-note"><span>AI summary</span>{approval.explanation}</p>}
+
       {approval.memo && (
         <blockquote className="approval-memo">
           <span>The agent says (unverified)</span>

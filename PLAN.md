@@ -134,7 +134,7 @@ leash/
 
 **Dependencies:** `@modelcontextprotocol/sdk`, `zod`, `express`, `better-sqlite3`, `@anthropic-ai/sdk`, `dotenv`, `react`, `vite`, `tsx`, `typescript`, `vitest`. PayPal uses plain `fetch`, and live updates use native SSE.
 
-**AI wrapper:** one `completeJson(prompt, schema)` function, configured by `AI_PROVIDER`, `AI_API_KEY` and `AI_MODEL`. Only the Anthropic adapter ships, defaulting to `claude-sonnet-5-5`.
+**AI wrapper:** one `completeJson` function, configured by `AI_PROVIDER`, `AI_API_KEY` and `AI_MODEL`. Only the Gemini adapter ships, defaulting to the free `gemini-3.5-flash-lite` (changed from Anthropic by decision on 30 Oct, to avoid paying for API credit). Free-tier limits aren't guaranteed, and Google may use free-tier content to improve its products, so nothing sensitive may go through it. Leash enforces policy the same way with no key.
 
 **`.env.example` additions:** `LEASH_DEMO_AGENT_KEY` and `DEMO_VENDOR_EMAILS` (the sandbox recipient accounts).
 

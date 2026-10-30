@@ -43,6 +43,7 @@ export interface Approval {
   currency: string;
   category: string;
   memo: string;
+  explanation: string | null;
   created_at: string;
   rule_results: RuleResult[];
 }
@@ -55,12 +56,20 @@ export interface AuditEvent {
   type: string;
   summary: string;
   sample: number;
+  explanation: string | null;
 }
 
 export interface LeashState {
   agents: Agent[];
   approvals: Approval[];
   events: AuditEvent[];
+  aiEnabled: boolean;
+}
+
+export interface PolicyDraft {
+  policy: Policy;
+  unchanged: string[];
+  warnings: string[];
 }
 
 async function send(path: string, init?: RequestInit): Promise<any> {
@@ -78,6 +87,13 @@ export const savePolicy = (agentId: string, policy: Policy) =>
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(policy),
+  });
+
+export const draftPolicy = (agentId: string, text: string): Promise<PolicyDraft> =>
+  send(`/api/agents/${agentId}/policy/draft`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
   });
 
 export type Connection = "connecting" | "live" | "offline";

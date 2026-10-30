@@ -26,7 +26,10 @@ export function createMcpServer(agent: Agent, payments: PaymentService): McpServ
         recipient: z.string().email().describe("The recipient's PayPal email address"),
         amount: z.union([z.string(), z.number()]).describe('Amount with at most 2 decimals, for example "19.99"'),
         currency: z.string().describe("ISO currency code, for example USD"),
-        category: z.string().describe("What the payment is for, for example software"),
+        category: z
+          .string()
+          .regex(/^[\w -]{1,40}$/, "Use a short plain label")
+          .describe("What the payment is for, for example software"),
         memo: z.string().max(500).optional().describe("Note shown to the recipient"),
         idempotency_key: z
           .string()

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { savePolicy } from "../api";
-import type { Agent, Policy } from "../api";
+import { draftPolicy, savePolicy } from "../api";
+import type { Agent, Policy, PolicyDraft } from "../api";
 
 interface FormValues {
   perTransactionCap: string;
@@ -74,10 +74,16 @@ const LIST_FIELDS: [keyof FormValues, string, string][] = [
   ["allowedCurrencies", "Allowed currencies", "Limits are enforced in USD."],
 ];
 
-export function PolicyEditor({ agent, onSaved }: { agent: Agent; onSaved: () => void }) {
+const EXAMPLE =
+  "This agent may pay up to $25 on its own, never more than $50 at once, $100 per day. Only verified vendors. Never for gambling or crypto.";
+
+export function PolicyEditor({ agent, aiEnabled, onSaved }: { agent: Agent; aiEnabled: boolean; onSaved: () => void }) {
   const [form, setForm] = useState(() => toForm(agent.policy));
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rules, setRules] = useState("");
+  const [drafting, setDrafting] = useState(false);
+  const [draft, setDraft] = useState<PolicyDraft | null>(null);
 
   // Live updates deliver a new policy object each time, so compare by content.
   // Otherwise every payment event would wipe whatever the human is typing.
@@ -90,6 +96,8 @@ export function PolicyEditor({ agent, onSaved }: { agent: Agent; onSaved: () => 
   useEffect(() => {
     setSaved(false);
     setError(null);
+    setDraft(null);
+    setRules("");
   }, [agent.id]);
 
   const update = (key: keyof FormValues, value: string | boolean) => {
@@ -97,11 +105,27 @@ export function PolicyEditor({ agent, onSaved }: { agent: Agent; onSaved: () => 
     setSaved(false);
   };
 
+  async function requestDraft() {
+    setDrafting(true);
+    setError(null);
+    try {
+      const result = await draftPolicy(agent.id, rules);
+      setDraft(result);
+      setForm(toForm(result.policy));
+      setSaved(false);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setDrafting(false);
+    }
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     try {
       await savePolicy(agent.id, toPolicy(form));
       setError(null);
+      setDraft(null);
       setSaved(true);
       onSaved();
     } catch (err) {
@@ -117,6 +141,39 @@ export function PolicyEditor({ agent, onSaved }: { agent: Agent; onSaved: () => 
           <p>Enforced in plain code on every payment. Changes apply to the next payment.</p>
         </div>
       </div>
+
+      {aiEnabled && (
+        <div className="ai-draft">
+          <label htmlFor="policy-rules">Describe the rules in plain English</label>
+          <textarea
+            id="policy-rules"
+            rows={3}
+            maxLength={2000}
+            placeholder={EXAMPLE}
+            value={rules}
+            onChange={(event) => setRules(event.target.value)}
+          />
+          <div className="ai-draft-foot">
+            <small>AI fills in the form below. Nothing is enforced until you review it and save.</small>
+            <button type="button" className="button" disabled={drafting || !rules.trim()} onClick={requestDraft}>
+              {drafting ? "Drafting" : "Draft policy"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {draft && (
+        <div className="draft-review" role="status">
+          <strong>Draft ready. Not saved yet.</strong>
+          <p>Check every value below, then save to enforce it.</p>
+          {draft.unchanged.length > 0 && <p>Not mentioned, so left unchanged: {draft.unchanged.join(", ")}.</p>}
+          {draft.warnings.map((warning) => (
+            <p key={warning} className="tone-warn">
+              {warning}
+            </p>
+          ))}
+        </div>
+      )}
 
       <div className="policy-grid">
         {MONEY_FIELDS.map(([key, label, hint]) => (

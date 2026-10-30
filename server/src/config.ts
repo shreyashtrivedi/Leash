@@ -18,6 +18,9 @@ function required(name: string): string {
 export const config = {
   paypalClientId: required("PAYPAL_CLIENT_ID"),
   paypalClientSecret: required("PAYPAL_CLIENT_SECRET"),
+  aiProvider: process.env.AI_PROVIDER || "gemini",
+  aiApiKey: process.env.AI_API_KEY ?? "",
+  aiModel: process.env.AI_MODEL || "gemini-3.5-flash-lite",
   port: Number(process.env.PORT ?? 3000),
   dbPath: process.env.LEASH_DB ?? fileURLToPath(new URL("../leash.db", import.meta.url)),
   demoAgentKey: process.env.LEASH_DEMO_AGENT_KEY ?? "leash-demo-key",

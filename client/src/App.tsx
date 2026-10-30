@@ -152,7 +152,7 @@ export function App() {
             </Suspense>
           )}
 
-          {view === "policy" && <PolicyEditor agent={agent} onSaved={refresh} />}
+          {view === "policy" && <PolicyEditor agent={agent} aiEnabled={state.aiEnabled} onSaved={refresh} />}
         </main>
       </div>
     </div>

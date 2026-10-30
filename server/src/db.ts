@@ -27,6 +27,7 @@ export interface AuditEvent {
   type: string;
   summary: string;
   sample: number;
+  explanation: string | null;
 }
 
 // Every audit write is announced here, which is what feeds the live timeline.
@@ -49,6 +50,7 @@ export interface PaymentRow {
   transaction_id: string | null;
   paypal_status: string | null;
   error: string | null;
+  explanation: string | null;
   created_at: string;
   reserved_at: string | null;
 }
@@ -86,6 +88,7 @@ export function openDb(path: string): Db {
       transaction_id TEXT,
       paypal_status TEXT,
       error TEXT,
+      explanation TEXT,
       created_at TEXT NOT NULL,
       reserved_at TEXT,
       UNIQUE (agent_id, idempotency_key)
@@ -163,7 +166,13 @@ export function addAuditEvent(
 }
 
 export function listAuditEvents(db: Db, limit: number): AuditEvent[] {
-  return db.prepare("SELECT * FROM audit_events ORDER BY at DESC, id DESC LIMIT ?").all(limit) as AuditEvent[];
+  return db
+    .prepare(
+      `SELECT e.*, CASE WHEN e.type IN ('decision.deny', 'decision.require_approval') THEN p.explanation END AS explanation
+       FROM audit_events e LEFT JOIN payments p ON p.id = e.payment_id
+       ORDER BY e.at DESC, e.id DESC LIMIT ?`,
+    )
+    .all(limit) as AuditEvent[];
 }
 
 export const parseRuleResults = (row: PaymentRow): RuleResult[] => JSON.parse(row.rule_results);

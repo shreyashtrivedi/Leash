@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
+import type { Explainer } from "./ai/explain.js";
 import type { Agent, Db, PaymentRow } from "./db.js";
-import { addAuditEvent, getAgent, getRecipient, parseRuleResults } from "./db.js";
+import { addAuditEvent, auditBus, getAgent, getRecipient, parseRuleResults } from "./db.js";
 import { PayPalError } from "./paypal.js";
 import type { PayPalClient } from "./paypal.js";
 import { evaluate } from "./policy/engine.js";
@@ -83,7 +84,7 @@ export function toResult(row: PaymentRow): PaymentResult {
 export function createPaymentService(
   db: Db,
   paypal: PayPalClient,
-  options: { pollMs?: number; pollTimeoutMs?: number } = {},
+  options: { pollMs?: number; pollTimeoutMs?: number; explain?: Explainer | null } = {},
 ) {
   const pollMs = options.pollMs ?? 1000;
   const pollTimeoutMs = options.pollTimeoutMs ?? 45_000;
@@ -198,6 +199,39 @@ export function createPaymentService(
     audit(row, "payment.failed", `PayPal could not send ${row.amount} ${row.currency} to ${row.recipient}: ${error}`);
   }
 
+  // Runs after the decision is final, and never delays or changes it. If this fails,
+  // the dashboard still shows the rule's own reason.
+  function explainLater(id: string) {
+    const row = getRow(id);
+    const agent = row && getAgent(db, row.agent_id);
+    if (!options.explain || !row || !agent) return;
+
+    const context = spendContext(row.agent_id, row.recipient, false);
+    const reasons = failedRules(row)
+      .filter((failure) => row.status === "pending_approval" || failure.rule !== "auto_approve_limit")
+      .map((failure) => failure.reason);
+
+    options
+      .explain({
+        outcome: row.status === "blocked" ? "blocked" : "held",
+        agent: agent.name,
+        amount: row.amount,
+        currency: row.currency,
+        recipient: row.recipient,
+        recipientKnown: context.recipientRecord !== null,
+        recipientVerified: context.recipientRecord?.verified === true,
+        spentTodayCents: context.spentTodayCents,
+        dailyBudgetCents: agent.policy.dailyBudgetCents,
+        reasons,
+      })
+      .then((explanation) => {
+        if (!explanation) return;
+        setFields(id, { explanation });
+        auditBus.emit("event");
+      })
+      .catch((err) => console.error(`Explanation failed: ${(err as Error).message}`));
+  }
+
   async function refresh(id: string) {
     const row = getRow(id);
     if (row?.status !== "sending" || !row.payout_batch_id) return;
@@ -279,6 +313,7 @@ export function createPaymentService(
     async pay(agent: Agent, input: PayInput): Promise<PaymentResult> {
       const { row, isNew } = recordPayment(agent, input);
       if (isNew && row.status === "sending") await execute(row.id);
+      if (isNew && row.status !== "sending") explainLater(row.id);
       return toResult(getRow(row.id)!);
     },
 
@@ -296,6 +331,8 @@ export function createPaymentService(
       if (!resolved) return null;
       if (resolved.send) {
         void execute(id).catch((err) => markFailed(getRow(id)!, String(err)));
+      } else if (resolved.row.status === "blocked") {
+        explainLater(id);
       }
       return toResult(resolved.row);
     },

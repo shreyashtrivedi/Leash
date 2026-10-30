@@ -1,5 +1,7 @@
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Router } from "express";
+import type { AiClient } from "./ai/client.js";
+import { draftPolicy } from "./ai/draftPolicy.js";
 import type { Db } from "./db.js";
 import { addAuditEvent, auditBus, findAgentByKey, getAgent, listAgents, listAuditEvents, saveAgentPolicy } from "./db.js";
 import { createMcpServer } from "./mcp/tools.js";
@@ -32,7 +34,7 @@ export function mcpRoutes(db: Db, payments: PaymentService): Router {
   return router;
 }
 
-export function dashboardRoutes(db: Db, payments: PaymentService): Router {
+export function dashboardRoutes(db: Db, payments: PaymentService, ai: AiClient | null): Router {
   const router = Router();
 
   router.get("/api/state", (_req, res) => {
@@ -40,6 +42,7 @@ export function dashboardRoutes(db: Db, payments: PaymentService): Router {
       agents: listAgents(db).map((agent) => ({ ...agent, spend: payments.spendSummary(agent) })),
       approvals: payments.listPendingApprovals(),
       events: listAuditEvents(db, 500),
+      aiEnabled: ai !== null,
     });
   });
 
@@ -59,6 +62,26 @@ export function dashboardRoutes(db: Db, payments: PaymentService): Router {
       clearInterval(heartbeat);
       auditBus.off("event", notify);
     });
+  });
+
+  // Only returns a draft for the human to review. Saving stays a separate step.
+  router.post("/api/agents/:id/policy/draft", async (req, res) => {
+    const agent = getAgent(db, req.params.id);
+    const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+    if (!agent || !text || text.length > 2000) {
+      res.status(400).json({ error: "Describe the rules in under 2,000 characters." });
+      return;
+    }
+    if (!ai) {
+      res.status(503).json({ error: "AI drafting is not set up. You can still edit the policy by hand." });
+      return;
+    }
+    try {
+      res.json(await draftPolicy(ai, text, agent.policy));
+    } catch (err) {
+      console.error(`Policy draft failed: ${(err as Error).message}`);
+      res.status(502).json({ error: "The AI could not draft that. Try again, or edit the policy by hand." });
+    }
   });
 
   router.put("/api/agents/:id/policy", (req, res) => {

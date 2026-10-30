@@ -54,7 +54,13 @@ export default function AuditGrid({ events, agents }: { events: AuditEvent[]; ag
         valueGetter: ({ data }) => eventMeta(data?.type ?? "").label,
         cellRenderer: EventCell,
       },
-      { headerName: "Details", field: "summary", flex: 1, minWidth: 320, tooltipField: "summary" },
+      {
+        headerName: "Details",
+        flex: 1,
+        minWidth: 320,
+        valueGetter: ({ data }) => [data?.summary, data?.explanation].filter(Boolean).join(" · "),
+        tooltipValueGetter: ({ value }) => value,
+      },
       {
         headerName: "Source",
         width: 110,
