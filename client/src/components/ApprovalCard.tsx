@@ -4,10 +4,17 @@ import type { Approval } from "../api";
 import { formatMoney, formatTime } from "../format";
 import { Icon } from "./Icon";
 
+const ACTIONS = {
+  payment: { label: "Payment", approve: "Approve and pay" },
+  refund: { label: "Refund", approve: "Approve refund" },
+  invoice: { label: "Invoice", approve: "Approve and send" },
+};
+
 export function ApprovalCard({ approval, agentName }: { approval: Approval; agentName: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const trigger = approval.rule_results.find((result) => !result.passed);
+  const action = ACTIONS[approval.kind];
 
   async function decide(action: "approve" | "reject") {
     setBusy(true);
@@ -24,7 +31,7 @@ export function ApprovalCard({ approval, agentName }: { approval: Approval; agen
     <article className="approval">
       <header className="approval-head">
         <span className="tag tone-warn">
-          <Icon name="pause" size={14} /> Waiting for you
+          <Icon name="pause" size={14} /> {action.label} waiting for you
         </span>
         <span className="approval-meta">
           {agentName} · {formatTime(approval.created_at)}
@@ -35,13 +42,14 @@ export function ApprovalCard({ approval, agentName }: { approval: Approval; agen
         <div>
           <p className="approval-amount">{formatMoney(approval.amount, approval.currency)}</p>
           <p className="approval-to">
-            to <strong>{approval.recipient}</strong>
+            {approval.kind === "refund" ? "back to " : "to "}
+            <strong>{approval.recipient}</strong>
           </p>
           <p className="approval-category">Category: {approval.category || "not given"}</p>
         </div>
         <div className="approval-actions">
           <button className="button primary" disabled={busy} onClick={() => decide("approve")}>
-            Approve and pay
+            {action.approve}
           </button>
           <button className="button" disabled={busy} onClick={() => decide("reject")}>
             Reject

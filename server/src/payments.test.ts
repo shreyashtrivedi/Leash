@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Agent, Db } from "./db.js";
-import { getAgent, openDb, saveAgent, saveRecipient } from "./db.js";
+import { getAgent, openDb, saveAgent, saveRecipient, verifyAuditChain } from "./db.js";
 import { createPaymentService } from "./payments.js";
 import type { PaymentService } from "./payments.js";
 import { PayPalError } from "./paypal.js";
-import type { PayoutInput, PayPalClient, PayoutItem } from "./paypal.js";
+import type { PayoutInput, PayPalClient, PayoutItem, RefundInput } from "./paypal.js";
 import type { Policy } from "./policy/types.js";
 
 const VENDOR = "vendor@example.com";
@@ -41,6 +41,16 @@ function fakePayPal(overrides: Partial<PayPalClient> = {}) {
     async getPayoutItem(): Promise<PayoutItem> {
       return { status: "SUCCESS", transactionId: "TX123", itemId: "ITEM1", error: null };
     },
+    async cancelPayoutItem() {},
+    async getCapture() {
+      return { value: "10.00", currency: "USD" };
+    },
+    async refundCapture() {
+      return { id: "REFUND1", status: "COMPLETED" };
+    },
+    async sendInvoice() {
+      return "INV2-1";
+    },
     ...overrides,
   };
   return { client, payouts };
@@ -69,7 +79,7 @@ describe("payment service", () => {
     const result = await service(client).pay(agent, pay("10.00"));
     expect(result).toMatchObject({ status: "executed", paypal_transaction_id: "TX123" });
     expect(payouts[0]).toMatchObject({ recipient: VENDOR, value: "10.00", currency: "USD" });
-    expect(payouts[0]?.senderBatchId).toBe(`leash-${result.payment_id}`);
+    expect(payouts[0]?.senderBatchId).toBe(`leash-${result.payment_id as string}`);
   });
 
   it("blocks without calling PayPal and explains why", async () => {
@@ -99,18 +109,18 @@ describe("payment service", () => {
     const { client, payouts } = fakePayPal();
     const payments = service(client);
     const held = await payments.pay(agent, pay("30.00"));
-    expect(payments.resolveApproval(held.payment_id, true)?.status).toBe("processing");
+    expect(payments.resolveApproval(held.payment_id as string, true)?.status).toBe("processing");
     await waitForPayouts(payouts, 1);
     await new Promise((r) => setTimeout(r, 20));
-    expect(await payments.check(agent, held.payment_id)).toMatchObject({ status: "executed" });
+    expect(await payments.check(agent, held.payment_id as string)).toMatchObject({ status: "executed" });
   });
 
   it("does not send a rejected payment", async () => {
     const { client, payouts } = fakePayPal();
     const payments = service(client);
     const held = await payments.pay(agent, pay("30.00"));
-    expect(payments.resolveApproval(held.payment_id, false)?.status).toBe("rejected");
-    expect(await payments.check(agent, held.payment_id)).toMatchObject({ status: "rejected" });
+    expect(payments.resolveApproval(held.payment_id as string, false)?.status).toBe("rejected");
+    expect(await payments.check(agent, held.payment_id as string)).toMatchObject({ status: "rejected" });
     expect(payouts).toHaveLength(0);
   });
 
@@ -118,9 +128,9 @@ describe("payment service", () => {
     const { client, payouts } = fakePayPal();
     const payments = service(client);
     const held = await payments.pay(agent, pay("30.00"));
-    expect(payments.resolveApproval(held.payment_id, true)).not.toBeNull();
-    expect(payments.resolveApproval(held.payment_id, true)).toBeNull();
-    expect(payments.resolveApproval(held.payment_id, false)).toBeNull();
+    expect(payments.resolveApproval(held.payment_id as string, true)).not.toBeNull();
+    expect(payments.resolveApproval(held.payment_id as string, true)).toBeNull();
+    expect(payments.resolveApproval(held.payment_id as string, false)).toBeNull();
     await waitForPayouts(payouts, 2);
     expect(payouts).toHaveLength(1);
   });
@@ -130,7 +140,7 @@ describe("payment service", () => {
     const payments = service(client);
     const held = await payments.pay(agent, pay("30.00"));
     await payments.pay(agent, pay("25.00"));
-    expect(payments.resolveApproval(held.payment_id, true)?.status).toBe("blocked");
+    expect(payments.resolveApproval(held.payment_id as string, true)?.status).toBe("blocked");
     expect(payouts).toHaveLength(1);
   });
 
@@ -211,7 +221,7 @@ describe("payment service", () => {
     const result = await payments.pay(agent, pay("10.00"));
     expect(result.status).toBe("processing");
     status = "SUCCESS";
-    expect(await payments.check(agent, result.payment_id)).toMatchObject({ status: "executed", paypal_transaction_id: "TX9" });
+    expect(await payments.check(agent, result.payment_id as string)).toMatchObject({ status: "executed", paypal_transaction_id: "TX9" });
   });
 
   it("marks a payout PayPal fails later as failed and releases the budget", async () => {
@@ -299,10 +309,209 @@ describe("payment service", () => {
     expect(calls).toBe(0);
   });
 
+  describe("refunds", () => {
+    it("refunds a capture in full by default", async () => {
+      const inputs: RefundInput[] = [];
+      const { client } = fakePayPal({
+        refundCapture: async (input) => {
+          inputs.push(input);
+          return { id: "R1", status: "COMPLETED" };
+        },
+      });
+      const result = await service(client).refundCapture(agent, { captureId: "CAP1", reason: "Damaged" });
+      expect(result).toMatchObject({ status: "executed", type: "refund", paypal_refund_id: "R1" });
+      expect(inputs[0]).toMatchObject({ captureId: "CAP1", value: "10.00", currency: "USD", note: "Damaged" });
+      expect(inputs[0]?.requestId).toBe(result.payment_id);
+    });
+
+    it("sends a held refund only after approval", async () => {
+      let refunds = 0;
+      const { client } = fakePayPal({
+        getCapture: async () => ({ value: "30.00", currency: "USD" }),
+        refundCapture: async () => {
+          refunds++;
+          return { id: "R1", status: "COMPLETED" };
+        },
+      });
+      const payments = service(client);
+      const held = await payments.refundCapture(agent, { captureId: "CAP1" });
+      expect(held.status).toBe("pending_approval");
+      expect(refunds).toBe(0);
+      payments.resolveApproval(held.payment_id as string, true);
+      await new Promise((r) => setTimeout(r, 10));
+      expect(refunds).toBe(1);
+    });
+
+    it("blocks a refund over the cap", async () => {
+      const { client } = fakePayPal({ getCapture: async () => ({ value: "120.00", currency: "USD" }) });
+      expect((await service(client).refundCapture(agent, { captureId: "CAP1" })).status).toBe("blocked");
+    });
+
+    it("counts refunds against the budget", async () => {
+      const payments = service(fakePayPal().client);
+      await payments.refundCapture(agent, { captureId: "CAP1", amount: "25.00" });
+      await payments.refundCapture(agent, { captureId: "CAP2", amount: "25.00" });
+      const third = await payments.refundCapture(agent, { captureId: "CAP3", amount: "1.00" });
+      expect(third.status).toBe("blocked");
+    });
+
+    it("reports an unknown capture", async () => {
+      const { client } = fakePayPal({
+        getCapture: async () => {
+          throw new PayPalError(404, "RESOURCE_NOT_FOUND", "Not found");
+        },
+      });
+      expect((await service(client).refundCapture(agent, { captureId: "NOPE" })).status).toBe("not_found");
+    });
+
+    const sendUnclaimed = (overrides: Partial<PayPalClient> = {}) => {
+      const { client } = fakePayPal({
+        getPayoutItem: async () => ({ status: "UNCLAIMED", transactionId: "T", itemId: "ITEM9", error: null }),
+        ...overrides,
+      });
+      return service(client);
+    };
+
+    it("cancels an unclaimed payout and frees its budget", async () => {
+      const cancelled: string[] = [];
+      const payments = sendUnclaimed({
+        cancelPayoutItem: async (id) => {
+          cancelled.push(id);
+        },
+      });
+      const paid = await payments.pay(agent, pay("25.00"));
+      await payments.pay(agent, pay("25.00"));
+      expect((await payments.pay(agent, pay("1.00"))).status).toBe("blocked");
+
+      const result = await payments.reversePayout(agent, paid.payment_id as string);
+      expect(result.status).toBe("refunded");
+      expect(cancelled).toEqual(["ITEM9"]);
+      expect((await payments.pay(agent, pay("25.00"))).status).toBe("executed");
+    });
+
+    it("tells the truth when PayPal cannot cancel, and keeps the payment counted", async () => {
+      const payments = sendUnclaimed({
+        cancelPayoutItem: async () => {
+          throw new PayPalError(500, "INTERNAL_SERVICE_ERROR", "Oops");
+        },
+      });
+      const paid = await payments.pay(agent, pay("10.00"));
+      const result = await payments.reversePayout(agent, paid.payment_id as string);
+      expect(result.status).toBe("failed");
+      expect(result.reason).toContain("still unclaimed");
+      expect(await payments.check(agent, paid.payment_id as string)).toMatchObject({ status: "executed" });
+    });
+
+    it("refuses to reverse a claimed payout", async () => {
+      const payments = service(fakePayPal().client);
+      const paid = await payments.pay(agent, pay("10.00"));
+      const result = await payments.reversePayout(agent, paid.payment_id as string);
+      expect(result.status).toBe("not_refundable");
+      expect(result.reason).toContain("claimed");
+    });
+
+    it("notices a payout claimed since it was sent", async () => {
+      let status = "UNCLAIMED";
+      const { client } = fakePayPal({
+        getPayoutItem: async () => ({ status, transactionId: "T", itemId: "I", error: null }),
+      });
+      const payments = service(client);
+      const paid = await payments.pay(agent, pay("10.00"));
+      status = "SUCCESS";
+      expect((await payments.reversePayout(agent, paid.payment_id as string)).status).toBe("not_refundable");
+    });
+
+    it("will not reverse another agent's payment", async () => {
+      const payments = service(fakePayPal().client);
+      const paid = await payments.pay(agent, pay("10.00"));
+      const result = await payments.reversePayout(getAgent(db, "a2")!, paid.payment_id as string);
+      expect(result.status).toBe("not_found");
+    });
+
+    it("will not reverse a payment that never went out", async () => {
+      const payments = service(fakePayPal().client);
+      const blocked = await payments.pay(agent, pay("120.00"));
+      expect((await payments.reversePayout(agent, blocked.payment_id as string)).status).toBe("not_refundable");
+    });
+  });
+
+  describe("invoices", () => {
+    const invoice = (amount: string) => ({ ...pay(amount), recipient: "customer@example.com", memo: "Consulting" });
+
+    it("sends an invoice without using budget", async () => {
+      const payments = service(fakePayPal().client);
+      const result = await payments.createInvoice(agent, invoice("25.00"));
+      expect(result).toMatchObject({ status: "executed", type: "invoice", paypal_invoice_id: "INV2-1" });
+      expect(payments.spendSummary(agent).spentTodayCents).toBe(0);
+    });
+
+    it("counts invoices towards the hourly rate", async () => {
+      const payments = service(fakePayPal().client);
+      await payments.createInvoice(agent, invoice("5.00"));
+      expect(payments.spendSummary(agent).paymentsLastHour).toBe(1);
+    });
+
+    it("holds a large invoice until approved", async () => {
+      let sent = 0;
+      const { client } = fakePayPal({
+        sendInvoice: async () => {
+          sent++;
+          return "INV2-2";
+        },
+      });
+      const payments = service(client);
+      const held = await payments.createInvoice(agent, invoice("30.00"));
+      expect(held.status).toBe("pending_approval");
+      payments.resolveApproval(held.payment_id as string, true);
+      await new Promise((r) => setTimeout(r, 10));
+      expect(sent).toBe(1);
+      expect(await payments.check(agent, held.payment_id as string)).toMatchObject({ status: "executed" });
+    });
+
+    it("blocks an invoice to a blocked category", async () => {
+      const result = await service(fakePayPal().client).createInvoice(agent, { ...invoice("5.00"), category: "gambling" });
+      expect(result.status).toBe("blocked");
+    });
+
+    it("reports PayPal's refusal", async () => {
+      const { client } = fakePayPal({
+        sendInvoice: async () => {
+          throw new PayPalError(403, "NOT_AUTHORIZED", "No permission");
+        },
+      });
+      const result = await service(client).createInvoice(agent, invoice("5.00"));
+      expect(result.status).toBe("failed");
+      expect(result.reason).toContain("NOT_AUTHORIZED");
+    });
+  });
+
+  describe("audit chain", () => {
+    it("rejects edits and deletes at the database level", async () => {
+      await service(fakePayPal().client).pay(agent, pay("10.00"));
+      expect(() => db.prepare("UPDATE audit_events SET summary = 'changed'").run()).toThrow("append-only");
+      expect(() => db.prepare("DELETE FROM audit_events").run()).toThrow("append-only");
+      expect(verifyAuditChain(db)).toMatchObject({ intact: true, events: 3 });
+    });
+
+    it("detects tampering even if the triggers are removed", async () => {
+      await service(fakePayPal().client).pay(agent, pay("10.00"));
+      db.exec("DROP TRIGGER audit_no_update");
+      db.prepare("UPDATE audit_events SET summary = 'Sent 1.00 USD' WHERE type = 'payment.executed'").run();
+      expect(verifyAuditChain(db).intact).toBe(false);
+    });
+
+    it("detects a removed entry", async () => {
+      await service(fakePayPal().client).pay(agent, pay("10.00"));
+      db.exec("DROP TRIGGER audit_no_delete");
+      db.prepare("DELETE FROM audit_events WHERE type = 'payment.sending'").run();
+      expect(verifyAuditChain(db).intact).toBe(false);
+    });
+  });
+
   it("hides one agent's payments from another", async () => {
     const payments = service(fakePayPal().client);
     const result = await payments.pay(agent, pay("10.00"));
-    expect(await payments.check(getAgent(db, "a2")!, result.payment_id)).toBeNull();
+    expect(await payments.check(getAgent(db, "a2")!, result.payment_id as string)).toBeNull();
   });
 
   it("writes an audit event for every decision and outcome", async () => {
@@ -310,7 +519,7 @@ describe("payment service", () => {
     await payments.pay(agent, pay("10.00"));
     await payments.pay(agent, pay("120.00"));
     const held = await payments.pay(agent, pay("30.00"));
-    payments.resolveApproval(held.payment_id, false);
+    payments.resolveApproval(held.payment_id as string, false);
     const types = db.prepare("SELECT type FROM audit_events ORDER BY id").pluck().all();
     expect(types).toEqual([
       "decision.allow",

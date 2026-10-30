@@ -30,7 +30,13 @@ function EventCell({ data }: ICellRendererParams<AuditEvent>) {
   );
 }
 
-export default function AuditGrid({ events, agents }: { events: AuditEvent[]; agents: Agent[] }) {
+interface AuditGridProps {
+  events: AuditEvent[];
+  agents: Agent[];
+  chain: { intact: boolean; events: number };
+}
+
+export default function AuditGrid({ events, agents, chain }: AuditGridProps) {
   const grid = useRef<AgGridReact<AuditEvent>>(null);
   const [search, setSearch] = useState("");
 
@@ -77,6 +83,13 @@ export default function AuditGrid({ events, agents }: { events: AuditEvent[]; ag
           <h2>Audit log</h2>
           <p>Append-only. Every decision, approval and payment, with its reason.</p>
         </div>
+        <span
+          className={`tag ${chain.intact ? "tone-good chain-ok" : "tone-bad chain-bad"}`}
+          title="Each entry's hash covers the one before it, so editing or removing history breaks the chain."
+        >
+          <Icon name={chain.intact ? "shield" : "alert"} size={14} />
+          {chain.intact ? `Hash chain intact · ${chain.events} entries` : "Tampering detected"}
+        </span>
         <input
           type="search"
           placeholder="Search the log"

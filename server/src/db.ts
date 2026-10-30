@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import Database from "better-sqlite3";
-import type { Policy, RecipientRecord, RuleResult } from "./policy/types.js";
+import type { PaymentKind, Policy, RecipientRecord, RuleResult } from "./policy/types.js";
 
 export type Db = Database.Database;
+
+const FIRST_HASH = "leash-audit-log";
 
 export type PaymentStatus =
   | "blocked"
@@ -11,6 +13,7 @@ export type PaymentStatus =
   | "rejected"
   | "sending"
   | "executed"
+  | "refunded"
   | "failed";
 
 export interface Agent {
@@ -27,6 +30,7 @@ export interface AuditEvent {
   type: string;
   summary: string;
   sample: number;
+  hash: string;
   explanation: string | null;
 }
 
@@ -36,6 +40,8 @@ export const auditBus = new EventEmitter().setMaxListeners(0);
 export interface PaymentRow {
   id: string;
   agent_id: string;
+  kind: PaymentKind;
+  target: string | null;
   recipient: string;
   amount: string;
   currency: string;
@@ -74,6 +80,8 @@ export function openDb(path: string): Db {
     CREATE TABLE IF NOT EXISTS payments (
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL REFERENCES agents(id),
+      kind TEXT NOT NULL DEFAULT 'payment',
+      target TEXT,
       recipient TEXT NOT NULL,
       amount TEXT NOT NULL,
       currency TEXT NOT NULL,
@@ -100,8 +108,13 @@ export function openDb(path: string): Db {
       payment_id TEXT,
       type TEXT NOT NULL,
       summary TEXT NOT NULL,
-      sample INTEGER NOT NULL DEFAULT 0
+      sample INTEGER NOT NULL DEFAULT 0,
+      hash TEXT NOT NULL
     );
+    CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit_events
+      BEGIN SELECT RAISE(ABORT, 'The audit log is append-only.'); END;
+    CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit_events
+      BEGIN SELECT RAISE(ABORT, 'The audit log is append-only.'); END;
   `);
   return db;
 }
@@ -150,19 +163,40 @@ export function saveAgentPolicy(db: Db, id: string, policy: Policy): void {
   db.prepare("UPDATE agents SET policy = ? WHERE id = ?").run(JSON.stringify(policy), id);
 }
 
+const hashEvent = (previous: string, fields: unknown[]) =>
+  createHash("sha256").update(JSON.stringify([previous, ...fields])).digest("hex");
+
+// Each entry's hash covers the one before it, so editing history breaks the chain.
 export function addAuditEvent(
   db: Db,
   event: { agentId: string | null; paymentId: string | null; type: string; summary: string; at?: string; sample?: boolean },
 ): void {
-  db.prepare("INSERT INTO audit_events (at, agent_id, payment_id, type, summary, sample) VALUES (?, ?, ?, ?, ?, ?)").run(
+  const fields = [
     event.at ?? new Date().toISOString(),
     event.agentId,
     event.paymentId,
     event.type,
     event.summary,
     event.sample ? 1 : 0,
+  ];
+  const previous = db.prepare("SELECT hash FROM audit_events ORDER BY id DESC LIMIT 1").pluck().get() as string | undefined;
+  db.prepare("INSERT INTO audit_events (at, agent_id, payment_id, type, summary, sample, hash) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+    ...fields,
+    hashEvent(previous ?? FIRST_HASH, fields),
   );
   auditBus.emit("event");
+}
+
+// Detects edits and gaps. It can't stop someone rewriting the whole file and every hash.
+export function verifyAuditChain(db: Db): { intact: boolean; events: number } {
+  const rows = db.prepare("SELECT * FROM audit_events ORDER BY id").all() as AuditEvent[];
+  let previous = FIRST_HASH;
+  for (const row of rows) {
+    const fields = [row.at, row.agent_id, row.payment_id, row.type, row.summary, row.sample];
+    if (row.hash !== hashEvent(previous, fields)) return { intact: false, events: rows.length };
+    previous = row.hash;
+  }
+  return { intact: true, events: rows.length };
 }
 
 export function listAuditEvents(db: Db, limit: number): AuditEvent[] {

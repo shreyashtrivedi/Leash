@@ -38,6 +38,8 @@ export interface RuleResult {
 export interface Approval {
   id: string;
   agent_id: string;
+  kind: "payment" | "refund" | "invoice";
+  target: string | null;
   recipient: string;
   amount: string;
   currency: string;
@@ -72,6 +74,7 @@ export interface LeashState {
   events: AuditEvent[];
   aiEnabled: boolean;
   demo: DemoStatus;
+  auditChain: { intact: boolean; events: number };
 }
 
 export interface PolicyDraft {

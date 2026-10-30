@@ -314,6 +314,37 @@ describe("multiple failures", () => {
   });
 });
 
+describe("refunds", () => {
+  const refund = request({ recipient: "original payer", category: "refund", amount: "10.00" });
+
+  it("skips recipient rules, because PayPal returns the money to the original payer", () => {
+    const strict = policy({ requireVerifiedRecipient: true, allowedRecipients: [], allowedCategories: ["software"] });
+    expect(evaluate(strict, refund, context(), "refund").decision).toBe("ALLOW");
+  });
+
+  it("still enforces the cap, approval limit, budgets and velocity", () => {
+    expect(evaluate(policy(), { ...refund, amount: "60.00" }, context(), "refund").decision).toBe("DENY");
+    expect(evaluate(policy(), { ...refund, amount: "30.00" }, context(), "refund").decision).toBe("REQUIRE_APPROVAL");
+    expect(evaluate(policy(), refund, context({ spentTodayCents: 95_00 }), "refund").decision).toBe("DENY");
+    expect(evaluate(policy(), refund, context({ paymentsLastHour: 10 }), "refund").decision).toBe("DENY");
+  });
+});
+
+describe("invoices", () => {
+  it("ignores budgets and vendor verification, because no money leaves", () => {
+    const strict = policy({ requireVerifiedRecipient: true, dailyBudgetCents: 0 });
+    expect(evaluate(strict, request(), context(), "invoice").decision).toBe("ALLOW");
+  });
+
+  it("still enforces the recipient, category, cap and approval rules", () => {
+    const blocked = policy({ blockedRecipients: ["vendor@example.com"] });
+    expect(evaluate(blocked, request(), context(), "invoice").decision).toBe("DENY");
+    expect(evaluate(policy({ blockedCategories: ["software"] }), request(), context(), "invoice").decision).toBe("DENY");
+    expect(evaluate(policy(), request({ amount: "60.00" }), context(), "invoice").decision).toBe("DENY");
+    expect(evaluate(policy(), request({ amount: "30.00" }), context(), "invoice").decision).toBe("REQUIRE_APPROVAL");
+  });
+});
+
 describe("policy schema", () => {
   it("normalizes list values so they match requests", () => {
     const parsed = policySchema.parse(policy({ blockedRecipients: [" Vendor@Example.com "], allowedCurrencies: ["usd"] }));

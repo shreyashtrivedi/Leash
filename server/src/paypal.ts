@@ -26,9 +26,29 @@ export interface PayoutItem {
   error: string | null;
 }
 
+export interface RefundInput {
+  captureId: string;
+  value: string;
+  currency: string;
+  note: string;
+  requestId: string;
+}
+
+export interface InvoiceInput {
+  requestId: string;
+  recipient: string;
+  value: string;
+  currency: string;
+  description: string;
+}
+
 export interface PayPalClient {
   createPayout(input: PayoutInput): Promise<string>;
   getPayoutItem(batchId: string): Promise<PayoutItem | null>;
+  cancelPayoutItem(itemId: string): Promise<void>;
+  getCapture(captureId: string): Promise<{ value: string; currency: string }>;
+  refundCapture(input: RefundInput): Promise<{ id: string; status: string }>;
+  sendInvoice(input: InvoiceInput): Promise<string>;
 }
 
 export function createPayPalClient(clientId: string, clientSecret: string): PayPalClient {
@@ -50,12 +70,15 @@ export function createPayPalClient(clientId: string, clientSecret: string): PayP
     return cachedToken.value;
   }
 
-  async function request(method: string, path: string, body?: unknown): Promise<any> {
+  // A request ID makes PayPal treat a retry as the same call rather than a new one.
+  async function request(method: string, path: string, body?: unknown, requestId?: string): Promise<any> {
     const res = await fetch(`${BASE_URL}${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${await getToken()}`,
         "Content-Type": "application/json",
+        Prefer: "return=representation",
+        ...(requestId ? { "PayPal-Request-Id": requestId } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
@@ -96,6 +119,47 @@ export function createPayPalClient(clientId: string, clientSecret: string): PayP
         itemId: item.payout_item_id ?? null,
         error: item.errors?.message ?? null,
       };
+    },
+
+    async cancelPayoutItem(itemId) {
+      await request("POST", `/v1/payments/payouts-item/${itemId}/cancel`);
+    },
+
+    async getCapture(captureId) {
+      const body = await request("GET", `/v2/payments/captures/${encodeURIComponent(captureId)}`);
+      return { value: body.amount.value, currency: body.amount.currency_code };
+    },
+
+    async refundCapture({ captureId, value, currency, note, requestId }) {
+      const body = await request(
+        "POST",
+        `/v2/payments/captures/${encodeURIComponent(captureId)}/refund`,
+        { amount: { value, currency_code: currency }, note_to_payer: note || "Refund from a Leash agent" },
+        requestId,
+      );
+      return { id: body.id, status: body.status };
+    },
+
+    // PayPal drafts an invoice first, then sends it as a second step.
+    async sendInvoice({ requestId, recipient, value, currency, description }) {
+      const draft = await request(
+        "POST",
+        "/v2/invoicing/invoices",
+        {
+          detail: { currency_code: currency, note: "Sent by a Leash agent" },
+          primary_recipients: [{ billing_info: { email_address: recipient } }],
+          items: [
+            {
+              name: (description || "Invoice from a Leash agent").slice(0, 200),
+              quantity: "1",
+              unit_amount: { currency_code: currency, value },
+            },
+          ],
+        },
+        requestId,
+      );
+      await request("POST", `/v2/invoicing/invoices/${draft.id}/send`, { send_to_recipient: true }, `${requestId}-send`);
+      return draft.id;
     },
   };
 }

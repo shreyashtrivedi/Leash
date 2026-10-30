@@ -4,7 +4,7 @@ Leash is a payment firewall for AI agents: an MCP server between any agent and t
 
 **Deadline:** 13 Nov 2026, 1:30 AM IST (12 Nov, noon Pacific). Code and deploy done by 10 Nov, video and text on 11 Nov, submitted on 12 Nov IST.
 
-**Status of this plan:** Stages 1–7 are done (30 Oct). Payouts work end to end through MCP over HTTP and stdio, and show in the sandbox. The dashboard is live, with approvals, timeline, AG Grid audit log, policy editor and spend summary. Invoice create and send also work, after the Invoicing feature was enabled on the app. Refunds are not proven. Section 1 has the results.
+**Status of this plan:** Stages 1–8 are done (30 Oct), including the audit hash chain. Payouts work end to end through MCP over HTTP and stdio, and show in the sandbox. The dashboard is live, with approvals, timeline, AG Grid audit log, policy editor and spend summary. Invoice create and send also work, after the Invoicing feature was enabled on the app. Refunds of captured payments work in the sandbox, while payout cancel still fails on PayPal's side. Section 1 has the results.
 
 ### Stage 1 test results
 
@@ -50,9 +50,9 @@ So `refund` behaves like this:
 | --- | --- |
 | `UNCLAIMED` payout | Calls cancel. If PayPal fails, `refund` reports that failure truthfully and marks nothing as refunded. Currently the sandbox returns 500 for every cancel. |
 | Claimed payout (`SUCCESS`) | Returns a clear structured refusal: PayPal cannot reverse this, and the recipient has to send it back. |
-| Money Leash received through a PayPal capture | `POST /v2/payments/captures/{id}/refund`. This is now the path to demonstrate a working refund, tested at Stage 8 with one sandbox order approved by hand. |
+| Money received through a PayPal capture | `POST /v2/payments/captures/{id}/refund`. **Proven in the sandbox, partial and full.** A test capture can be made with no browser step, using PayPal's test card in `server/scripts/create-test-capture.ts`. |
 
-If neither cancel nor capture refunds work at Stage 8, `refund` is shown only as a policy-checked refusal, or cut, and the README says why. Stating these limits openly is better than promising something PayPal doesn't offer.
+Stating these limits openly is better than promising something PayPal doesn't offer.
 
 ### What the Stage 1 script must prove
 

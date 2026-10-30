@@ -105,6 +105,7 @@ describe("policy drafting", () => {
 describe("explanations", () => {
   const facts: DecisionFacts = {
     outcome: "held",
+    action: "payment",
     agent: "Research Agent",
     amount: "30.00",
     currency: "USD",

@@ -309,6 +309,14 @@ input {
   font-weight: 600;
 }
 
+.chain-ok {
+  background: var(--good-soft);
+}
+
+.chain-bad {
+  background: var(--bad-soft);
+}
+
 .approval-meta {
   font-size: 13px;
   color: var(--muted);

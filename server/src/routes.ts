@@ -4,7 +4,16 @@ import type { AiClient } from "./ai/client.js";
 import { draftPolicy } from "./ai/draftPolicy.js";
 import type { Db } from "./db.js";
 import type { DemoStatus } from "./demo/agent.js";
-import { addAuditEvent, auditBus, findAgentByKey, getAgent, listAgents, listAuditEvents, saveAgentPolicy } from "./db.js";
+import {
+  addAuditEvent,
+  auditBus,
+  findAgentByKey,
+  getAgent,
+  listAgents,
+  listAuditEvents,
+  saveAgentPolicy,
+  verifyAuditChain,
+} from "./db.js";
 import { createMcpServer } from "./mcp/tools.js";
 import type { PaymentService } from "./payments.js";
 import { policySchema } from "./policy/types.js";
@@ -48,6 +57,7 @@ export function dashboardRoutes(db: Db, payments: PaymentService, ai: AiClient |
       agents: listAgents(db).map((agent) => ({ ...agent, spend: payments.spendSummary(agent) })),
       approvals: payments.listPendingApprovals(),
       events: listAuditEvents(db, 500),
+      auditChain: verifyAuditChain(db),
       aiEnabled: ai !== null,
       demo: demo.status(),
     });

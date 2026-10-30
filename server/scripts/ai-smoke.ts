@@ -41,6 +41,7 @@ for (const text of cases) {
 
 const explain = createExplainer(ai);
 const base = {
+  action: "payment" as const,
   agent: "Research Agent",
   currency: "USD",
   recipient: "vendor@example.com",

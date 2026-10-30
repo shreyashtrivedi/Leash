@@ -6,18 +6,24 @@ import { PayPalError } from "./paypal.js";
 import type { PayPalClient } from "./paypal.js";
 import { evaluate } from "./policy/engine.js";
 import { parseMinorUnits } from "./policy/money.js";
-import type { Evaluation, PaymentRequest, SpendContext } from "./policy/types.js";
+import type { Evaluation, PaymentKind, PaymentRequest, SpendContext } from "./policy/types.js";
 
 export interface PayInput extends PaymentRequest {
   memo?: string;
   idempotencyKey?: string;
 }
 
-export type PaymentResult = Record<string, unknown> & { status: string; payment_id: string };
+interface SubmitInput extends PayInput {
+  kind: PaymentKind;
+  target?: string;
+}
+
+export type PaymentResult = Record<string, unknown> & { status: string };
 
 const MAX_CREATE_ATTEMPTS = 3;
 const SUCCEEDED = new Set(["SUCCESS", "UNCLAIMED"]);
 const FAILED = new Set(["FAILED", "RETURNED", "BLOCKED", "REFUNDED", "REVERSED"]);
+const NOUNS: Record<PaymentKind, string> = { payment: "payment", refund: "refund", invoice: "invoice" };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -27,14 +33,38 @@ function failedRules(row: PaymentRow) {
     .map(({ rule, reason }) => ({ rule, reason }));
 }
 
+function describe(row: PaymentRow): string {
+  if (row.kind === "refund") return `Refund of ${row.amount} ${row.currency} on PayPal capture ${row.target}`;
+  if (row.kind === "invoice") return `Invoice for ${row.amount} ${row.currency} to ${row.recipient}`;
+  return `${row.amount} ${row.currency} to ${row.recipient}`;
+}
+
+function executedResult(row: PaymentRow) {
+  if (row.kind === "refund") {
+    return { paypal_refund_id: row.transaction_id, reason: "Refund sent to the original payer." };
+  }
+  if (row.kind === "invoice") {
+    return { paypal_invoice_id: row.transaction_id, reason: "Invoice sent to the recipient." };
+  }
+  return {
+    paypal_transaction_id: row.transaction_id,
+    reason:
+      row.paypal_status === "UNCLAIMED"
+        ? "Payment sent. The recipient has no PayPal account yet, so it is waiting to be claimed."
+        : "Payment sent.",
+  };
+}
+
 // What an agent sees. Every outcome says why, so the agent can adapt.
 export function toResult(row: PaymentRow): PaymentResult {
   const base = {
     payment_id: row.id,
+    type: row.kind,
     recipient: row.recipient,
     amount: row.amount,
     currency: row.currency,
   };
+  const noun = NOUNS[row.kind];
   const failures = failedRules(row);
 
   switch (row.status) {
@@ -57,27 +87,20 @@ export function toResult(row: PaymentRow): PaymentResult {
         next_step: "Call check_approval with this approval_id to see the human's decision.",
       };
     case "rejected":
-      return { ...base, status: "rejected", reason: "A human rejected this payment. Do not retry it." };
+      return { ...base, status: "rejected", reason: `A human rejected this ${noun}. Do not retry it.` };
     case "sending":
       return {
         ...base,
         status: "processing",
-        reason: "PayPal has not finished this payment yet.",
+        reason: `PayPal has not finished this ${noun} yet.`,
         next_step: "Call check_approval with this payment_id to get the final result. Do not send it again.",
       };
     case "executed":
-      return {
-        ...base,
-        status: "executed",
-        paypal_transaction_id: row.transaction_id,
-        paypal_status: row.paypal_status,
-        reason:
-          row.paypal_status === "UNCLAIMED"
-            ? "Payment sent. The recipient has no PayPal account yet, so it is waiting to be claimed."
-            : "Payment sent.",
-      };
+      return { ...base, status: "executed", paypal_status: row.paypal_status, ...executedResult(row) };
+    case "refunded":
+      return { ...base, status: "refunded", reason: "This payment was cancelled and the funds were returned." };
     case "failed":
-      return { ...base, status: "failed", reason: `PayPal could not complete this payment: ${row.error}` };
+      return { ...base, status: "failed", reason: `PayPal could not complete this ${noun}: ${row.error}` };
   }
 }
 
@@ -101,6 +124,7 @@ export function createPaymentService(
     addAuditEvent(db, { agentId: row.agent_id, paymentId: row.id, type, summary });
 
   // Reserved and completed payments both count, so parallel calls can't share a budget.
+  // Invoices count towards the hourly rate only, because they request money rather than spend it.
   function spendContext(agentId: string, recipient: string, approvedByHuman: boolean): SpendContext {
     const now = new Date();
     const dayStart = `${now.toISOString().slice(0, 10)}T00:00:00.000Z`;
@@ -108,8 +132,8 @@ export function createPaymentService(
     const spent = db
       .prepare(
         `SELECT
-           COALESCE(SUM(CASE WHEN reserved_at >= @dayStart THEN amount_usd_cents END), 0) AS today,
-           COALESCE(SUM(amount_usd_cents), 0) AS total,
+           COALESCE(SUM(CASE WHEN kind <> 'invoice' AND reserved_at >= @dayStart THEN amount_usd_cents END), 0) AS today,
+           COALESCE(SUM(CASE WHEN kind <> 'invoice' THEN amount_usd_cents END), 0) AS total,
            COUNT(CASE WHEN reserved_at >= @hourAgo THEN 1 END) AS lastHour
          FROM payments
          WHERE agent_id = @agentId AND status IN ('sending', 'executed')`,
@@ -127,7 +151,7 @@ export function createPaymentService(
 
   // Evaluation and reservation share one transaction, so the check can't go stale.
   const recordPayment = db
-    .transaction((agent: Agent, input: PayInput): { row: PaymentRow; isNew: boolean } => {
+    .transaction((agent: Agent, input: SubmitInput): { row: PaymentRow; isNew: boolean } => {
       if (input.idempotencyKey) {
         const existing = db
           .prepare("SELECT * FROM payments WHERE agent_id = ? AND idempotency_key = ?")
@@ -136,19 +160,21 @@ export function createPaymentService(
       }
 
       const recipient = input.recipient.trim().toLowerCase();
-      const evaluation = evaluate(agent.policy, input, spendContext(agent.id, recipient, false));
+      const evaluation = evaluate(agent.policy, input, spendContext(agent.id, recipient, false), input.kind);
       const status = { ALLOW: "sending", REQUIRE_APPROVAL: "pending_approval", DENY: "blocked" }[evaluation.decision];
       const now = new Date().toISOString();
       const id = randomUUID();
 
       db.prepare(
-        `INSERT INTO payments (id, agent_id, recipient, amount, currency, amount_usd_cents, category, memo,
+        `INSERT INTO payments (id, agent_id, kind, target, recipient, amount, currency, amount_usd_cents, category, memo,
            status, rule_results, idempotency_key, created_at, reserved_at)
-         VALUES (@id, @agentId, @recipient, @amount, @currency, @amountUsdCents, @category, @memo,
+         VALUES (@id, @agentId, @kind, @target, @recipient, @amount, @currency, @amountUsdCents, @category, @memo,
            @status, @ruleResults, @idempotencyKey, @createdAt, @reservedAt)`,
       ).run({
         id,
         agentId: agent.id,
+        kind: input.kind,
+        target: input.target ?? null,
         recipient,
         amount: String(input.amount),
         currency: input.currency.trim().toUpperCase(),
@@ -176,7 +202,7 @@ export function createPaymentService(
     audit(
       row,
       `decision.${evaluation.decision.toLowerCase()}`,
-      `${row.amount} ${row.currency} to ${row.recipient}${failures.length ? `: ${failures.join("; ")}` : ""}`,
+      `${describe(row)}${failures.length ? `: ${failures.join("; ")}` : ""}`,
     );
   }
 
@@ -191,7 +217,7 @@ export function createPaymentService(
         payout_item_id: item.itemId,
         paypal_status: item.status,
       });
-      audit(row, "payment.executed", `Sent ${row.amount} ${row.currency} to ${row.recipient}, PayPal transaction ${item.transactionId}`);
+      audit(row, "payment.executed", `Sent ${describe(row)}, PayPal transaction ${item.transactionId}`);
     } else if (FAILED.has(item.status)) {
       markFailed(row, item.error ?? `PayPal status ${item.status}`, item.status);
     }
@@ -199,7 +225,7 @@ export function createPaymentService(
 
   function markFailed(row: PaymentRow, error: string, paypalStatus: string | null = null) {
     setFields(row.id, { status: "failed", error, paypal_status: paypalStatus });
-    audit(row, "payment.failed", `PayPal could not send ${row.amount} ${row.currency} to ${row.recipient}: ${error}`);
+    audit(row, "payment.failed", `PayPal could not complete: ${describe(row)}: ${error}`);
   }
 
   // Runs after the decision is final, and never delays or changes it. If this fails,
@@ -217,6 +243,7 @@ export function createPaymentService(
     options
       .explain({
         outcome: row.status === "blocked" ? "blocked" : "held",
+        action: row.kind,
         agent: agent.name,
         amount: row.amount,
         currency: row.currency,
@@ -244,18 +271,11 @@ export function createPaymentService(
 
   // A 4xx on the first attempt means PayPal refused, so the reservation is released.
   // After a 5xx or network error the outcome is unknown: the money may have moved,
-  // so the payment stays "sending" and keeps its budget rather than risk overspending.
-  async function createPayout(row: PaymentRow): Promise<string | null> {
-    const value = (parseMinorUnits(row.amount)! / 100).toFixed(2);
+  // so the row stays "sending" and keeps its budget rather than risk overspending.
+  async function callPayPal<T>(row: PaymentRow, call: () => Promise<T>): Promise<T | null> {
     for (let attempt = 0; attempt < MAX_CREATE_ATTEMPTS; attempt++) {
       try {
-        return await paypal.createPayout({
-          senderBatchId: `leash-${row.id}`,
-          recipient: row.recipient,
-          value,
-          currency: row.currency,
-          note: row.memo || "Payment from a Leash agent",
-        });
+        return await call();
       } catch (err) {
         const refused = err instanceof PayPalError && err.status < 500;
         if (refused && attempt === 0) {
@@ -265,22 +285,53 @@ export function createPaymentService(
         if (refused) break;
       }
     }
-    setFields(row.id, { error: "PayPal did not confirm this payout. Check the sandbox before retrying." });
-    audit(row, "payment.unconfirmed", `PayPal did not confirm the payout to ${row.recipient}`);
+    setFields(row.id, { error: "PayPal did not confirm this. Check the sandbox before retrying." });
+    audit(row, "payment.unconfirmed", `PayPal did not confirm: ${describe(row)}`);
     return null;
+  }
+
+  function finish(row: PaymentRow, type: string, transactionId: string, paypalStatus: string, summary: string) {
+    setFields(row.id, { status: "executed", transaction_id: transactionId, paypal_status: paypalStatus });
+    audit(row, type, summary);
+  }
+
+  async function sendPayout(row: PaymentRow, value: string) {
+    const batchId = await callPayPal(row, () =>
+      paypal.createPayout({
+        senderBatchId: `leash-${row.id}`,
+        recipient: row.recipient,
+        value,
+        currency: row.currency,
+        note: row.memo || "Payment from a Leash agent",
+      }),
+    );
+    if (!batchId) return;
+    setFields(row.id, { payout_batch_id: batchId });
+
+    const deadline = Date.now() + pollTimeoutMs;
+    while (getRow(row.id)?.status === "sending" && Date.now() < deadline) {
+      await sleep(pollMs);
+      await refresh(row.id).catch(() => undefined);
+    }
   }
 
   async function execute(id: string) {
     const row = getRow(id)!;
-    audit(row, "payment.sending", `Sending ${row.amount} ${row.currency} to ${row.recipient} through PayPal`);
-    const batchId = await createPayout(row);
-    if (!batchId) return;
-    setFields(id, { payout_batch_id: batchId });
+    const value = (parseMinorUnits(row.amount)! / 100).toFixed(2);
+    audit(row, "payment.sending", `Sending through PayPal: ${describe(row)}`);
 
-    const deadline = Date.now() + pollTimeoutMs;
-    while (getRow(id)?.status === "sending" && Date.now() < deadline) {
-      await sleep(pollMs);
-      await refresh(id).catch(() => undefined);
+    if (row.kind === "refund") {
+      const refund = await callPayPal(row, () =>
+        paypal.refundCapture({ captureId: row.target!, value, currency: row.currency, note: row.memo, requestId: row.id }),
+      );
+      if (refund) finish(row, "refund.executed", refund.id, refund.status, `${describe(row)}, PayPal refund ${refund.id}`);
+    } else if (row.kind === "invoice") {
+      const invoiceId = await callPayPal(row, () =>
+        paypal.sendInvoice({ requestId: row.id, recipient: row.recipient, value, currency: row.currency, description: row.memo }),
+      );
+      if (invoiceId) finish(row, "invoice.sent", invoiceId, "SENT", `${describe(row)}, PayPal invoice ${invoiceId}`);
+    } else {
+      await sendPayout(row, value);
     }
   }
 
@@ -292,13 +343,13 @@ export function createPaymentService(
 
       if (!approved) {
         setFields(id, { status: "rejected" });
-        audit(row, "approval.rejected", `A human rejected ${row.amount} ${row.currency} to ${row.recipient}`);
+        audit(row, "approval.rejected", `A human rejected: ${describe(row)}`);
         return { row: getRow(id)!, send: false };
       }
 
       const agent = getAgent(db, row.agent_id)!;
       const request = { recipient: row.recipient, amount: row.amount, currency: row.currency, category: row.category };
-      const evaluation = evaluate(agent.policy, request, spendContext(row.agent_id, row.recipient, true));
+      const evaluation = evaluate(agent.policy, request, spendContext(row.agent_id, row.recipient, true), row.kind);
       const allowed = evaluation.decision === "ALLOW";
 
       setFields(id, {
@@ -306,18 +357,84 @@ export function createPaymentService(
         rule_results: JSON.stringify(evaluation.results),
         reserved_at: allowed ? new Date().toISOString() : null,
       });
-      audit(row, "approval.approved", `A human approved ${row.amount} ${row.currency} to ${row.recipient}`);
+      audit(row, "approval.approved", `A human approved: ${describe(row)}`);
       auditDecision(getRow(id)!, evaluation);
       return { row: getRow(id)!, send: allowed };
     })
     .immediate;
 
+  async function submit(agent: Agent, input: SubmitInput): Promise<PaymentResult> {
+    const { row, isNew } = recordPayment(agent, input);
+    if (isNew && row.status === "sending") await execute(row.id);
+    if (isNew && row.status !== "sending") explainLater(row.id);
+    return toResult(getRow(row.id)!);
+  }
+
   return {
-    async pay(agent: Agent, input: PayInput): Promise<PaymentResult> {
-      const { row, isNew } = recordPayment(agent, input);
-      if (isNew && row.status === "sending") await execute(row.id);
-      if (isNew && row.status !== "sending") explainLater(row.id);
-      return toResult(getRow(row.id)!);
+    pay: (agent: Agent, input: PayInput) => submit(agent, { ...input, kind: "payment" }),
+
+    // Invoices request money, so they skip budgets but keep every other relevant rule.
+    createInvoice: (agent: Agent, input: PayInput) => submit(agent, { ...input, kind: "invoice" }),
+
+    // PayPal sends a refund back to the original payer, so an agent can't redirect it.
+    async refundCapture(
+      agent: Agent,
+      input: { captureId: string; amount?: unknown; reason?: string; idempotencyKey?: string },
+    ): Promise<PaymentResult> {
+      let capture;
+      try {
+        capture = await paypal.getCapture(input.captureId);
+      } catch (err) {
+        if (err instanceof PayPalError && err.status < 500) {
+          return { status: "not_found", reason: `PayPal has no capture ${input.captureId} for this account.` };
+        }
+        throw err;
+      }
+      return submit(agent, {
+        kind: "refund",
+        target: input.captureId,
+        recipient: "original payer",
+        amount: input.amount ?? capture.value,
+        currency: capture.currency,
+        category: "refund",
+        memo: input.reason ?? "",
+        idempotencyKey: input.idempotencyKey,
+      });
+    },
+
+    // Reversing a payout returns money, so no spending rule can object to it. PayPal
+    // only allows this while a payout is unclaimed.
+    async reversePayout(agent: Agent, id: string): Promise<PaymentResult> {
+      const row = getRow(id);
+      if (row?.agent_id !== agent.id) return { status: "not_found", reason: `No payment ${id} exists for this agent.` };
+      if (row.kind !== "payment" || row.status !== "executed") {
+        return { ...toResult(row), status: "not_refundable", reason: `Only a sent payment can be reversed. This one is ${row.status}.` };
+      }
+
+      const item = row.payout_batch_id ? await paypal.getPayoutItem(row.payout_batch_id) : null;
+      if (item && item.status !== row.paypal_status) setFields(id, { paypal_status: item.status });
+      if ((item?.status ?? row.paypal_status) !== "UNCLAIMED") {
+        return {
+          ...toResult(row),
+          status: "not_refundable",
+          reason: "The recipient has claimed this payout. PayPal cannot reverse it, so the recipient has to send it back.",
+        };
+      }
+
+      try {
+        await paypal.cancelPayoutItem(row.payout_item_id!);
+      } catch (err) {
+        const message = (err as Error).message;
+        audit(row, "refund.failed", `PayPal could not cancel the unclaimed payout: ${describe(row)}: ${message}`);
+        return {
+          ...toResult(row),
+          status: "failed",
+          reason: `PayPal could not cancel this payout: ${message}. It is still unclaimed. If nobody claims it within 30 days, PayPal returns the funds.`,
+        };
+      }
+      setFields(id, { status: "refunded" });
+      audit(row, "refund.executed", `Cancelled the unclaimed payout and returned the funds: ${describe(row)}`);
+      return toResult(getRow(id)!);
     },
 
     // Works for approvals and payments. An agent can only see its own.

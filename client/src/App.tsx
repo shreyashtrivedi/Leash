@@ -150,7 +150,7 @@ export function App() {
 
           {view === "audit" && (
             <Suspense fallback={<p className="empty">Loading the audit log</p>}>
-              <AuditGrid events={state.events} agents={state.agents} />
+              <AuditGrid events={state.events} agents={state.agents} chain={state.auditChain} />
             </Suspense>
           )}
 

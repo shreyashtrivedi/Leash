@@ -1,12 +1,21 @@
 import { formatUsd, isSupportedCurrency, parseMinorUnits, toUsdCents } from "./money.js";
 import type {
   Evaluation,
+  PaymentKind,
   PaymentRequest,
   Policy,
   RuleId,
   RuleResult,
   SpendContext,
 } from "./types.js";
+
+// A refund goes back to the original payer, so recipient rules have nothing to judge.
+// An invoice requests money, so budgets don't apply and customers need no vendor check.
+const SKIPPED_RULES: Record<PaymentKind, RuleId[]> = {
+  payment: [],
+  refund: ["allowed_recipient", "verified_recipient", "allowed_category"],
+  invoice: ["daily_budget", "total_budget", "verified_recipient"],
+};
 
 const rule = (id: RuleId, passed: boolean, reason: string): RuleResult => ({ rule: id, passed, reason });
 
@@ -113,12 +122,17 @@ function checkAmountRules(policy: Policy, amount: number, context: SpendContext)
 
 // Pure function: same input, same decision. A failed hard rule always wins, and
 // human approval can only satisfy the auto-approve limit.
-export function evaluate(policy: Policy, request: PaymentRequest, context: SpendContext): Evaluation {
+export function evaluate(
+  policy: Policy,
+  request: PaymentRequest,
+  context: SpendContext,
+  kind: PaymentKind = "payment",
+): Evaluation {
   const recipient = request.recipient.trim().toLowerCase();
   const currencyResult = checkCurrency(policy, request.currency);
   const minorUnits = parseMinorUnits(request.amount);
 
-  const results: RuleResult[] = [
+  const allResults: RuleResult[] = [
     rule(
       "valid_amount",
       minorUnits !== null,
@@ -136,8 +150,9 @@ export function evaluate(policy: Policy, request: PaymentRequest, context: Spend
     minorUnits !== null && currencyResult.passed
       ? toUsdCents(minorUnits, request.currency.trim().toUpperCase())
       : null;
-  if (amountUsdCents !== null) results.push(...checkAmountRules(policy, amountUsdCents, context));
+  if (amountUsdCents !== null) allResults.push(...checkAmountRules(policy, amountUsdCents, context));
 
+  const results = allResults.filter((result) => !SKIPPED_RULES[kind].includes(result.rule));
   const failed = results.filter((result) => !result.passed);
   const decision =
     failed.length === 0

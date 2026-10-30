@@ -41,6 +41,8 @@ export interface SpendContext {
   approvedByHuman: boolean;
 }
 
+export type PaymentKind = "payment" | "refund" | "invoice";
+
 export type Decision = "ALLOW" | "REQUIRE_APPROVAL" | "DENY";
 
 export type RuleId =

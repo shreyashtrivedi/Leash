@@ -5,6 +5,7 @@ import type { AiClient } from "./client.js";
 // the agent being judged, so it must never be able to steer this text.
 export interface DecisionFacts {
   outcome: "blocked" | "held";
+  action: "payment" | "refund" | "invoice";
   agent: string;
   amount: string;
   currency: string;

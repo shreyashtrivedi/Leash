@@ -59,6 +59,67 @@ export function createMcpServer(agent: Agent, payments: PaymentService): McpServ
   );
 
   server.registerTool(
+    "refund",
+    {
+      title: "Refund a payment",
+      description:
+        "Refund money through Leash, subject to policy. Pass capture_id to refund a payment this PayPal account " +
+        "received: the money always returns to the original payer, and amount is optional for a full refund. Pass " +
+        "payment_id to reverse a payout Leash sent: PayPal allows this only while the payout is unclaimed. Returns " +
+        '"executed", "refunded", "blocked", "pending_approval", "processing", "not_refundable", "not_found" or "failed", with a reason.',
+      inputSchema: {
+        capture_id: z.string().max(40).optional().describe("The PayPal capture to refund"),
+        payment_id: z.string().max(40).optional().describe("The Leash payment_id of a payout to reverse"),
+        amount: z.union([z.string(), z.number()]).optional().describe("Part of a capture to refund. Omit for all of it"),
+        reason: z.string().max(255).optional().describe("Shown to the payer"),
+        idempotency_key: z.string().max(100).optional().describe("Reuse the same key when retrying"),
+      },
+    },
+    async ({ capture_id, payment_id, amount, reason, idempotency_key }) => {
+      if (Boolean(capture_id) === Boolean(payment_id)) {
+        return respond({ status: "invalid_request", reason: "Pass exactly one of capture_id or payment_id." });
+      }
+      return respond(
+        capture_id
+          ? await payments.refundCapture(agent, { captureId: capture_id, amount, reason, idempotencyKey: idempotency_key })
+          : await payments.reversePayout(agent, payment_id!),
+      );
+    },
+  );
+
+  server.registerTool(
+    "create_invoice",
+    {
+      title: "Send an invoice",
+      description:
+        "Create and send a PayPal invoice through Leash, subject to policy. Invoices request money, so they do not " +
+        'use budget. Returns "executed" with a PayPal invoice id, or "blocked", "pending_approval", "processing" or "failed", with a reason.',
+      inputSchema: {
+        recipient: z.string().email().describe("The customer's email address"),
+        amount: z.union([z.string(), z.number()]).describe('Amount with at most 2 decimals, for example "19.99"'),
+        currency: z.string().describe("ISO currency code, for example USD"),
+        description: z.string().min(1).max(200).describe("What the invoice is for"),
+        category: z
+          .string()
+          .regex(/^[\w -]{1,40}$/, "Use a short plain label")
+          .describe("What kind of work this bills for, for example consulting"),
+        idempotency_key: z.string().max(100).optional().describe("Reuse the same key when retrying"),
+      },
+    },
+    async ({ recipient, amount, currency, description, category, idempotency_key }) =>
+      respond(
+        await payments.createInvoice(agent, {
+          recipient,
+          amount,
+          currency,
+          category,
+          memo: description,
+          idempotencyKey: idempotency_key,
+        }),
+      ),
+  );
+
+  server.registerTool(
     "get_spend_summary",
     {
       title: "Get spend summary",
