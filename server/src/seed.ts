@@ -10,14 +10,14 @@ const SUPPORT_AGENT_ID = "support-agent";
 const demoPolicy = policySchema.parse({
   perTransactionCapCents: 50_00,
   autoApproveLimitCents: 25_00,
-  dailyBudgetCents: 100_00,
-  totalBudgetCents: 500_00,
+  dailyBudgetCents: 500_00,
+  totalBudgetCents: 5000_00,
   allowedRecipients: null,
   blockedRecipients: [],
   requireVerifiedRecipient: true,
   allowedCategories: null,
   blockedCategories: ["gambling", "crypto"],
-  maxPaymentsPerHour: 20,
+  maxPaymentsPerHour: 30,
   allowedCurrencies: ["USD"],
 });
 

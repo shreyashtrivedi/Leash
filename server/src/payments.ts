@@ -169,7 +169,10 @@ export function createPaymentService(
     .immediate;
 
   function auditDecision(row: PaymentRow, evaluation: Evaluation) {
-    const failures = evaluation.results.filter((result) => !result.passed).map((result) => result.reason);
+    const failures = evaluation.results
+      .filter((result) => !result.passed)
+      .filter((result) => evaluation.decision !== "DENY" || result.rule !== "auto_approve_limit")
+      .map((result) => result.reason);
     audit(
       row,
       `decision.${evaluation.decision.toLowerCase()}`,

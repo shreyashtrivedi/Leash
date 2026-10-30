@@ -59,11 +59,19 @@ export interface AuditEvent {
   explanation: string | null;
 }
 
+export interface DemoStatus {
+  available: boolean;
+  running: boolean;
+  report: string | null;
+  error: string | null;
+}
+
 export interface LeashState {
   agents: Agent[];
   approvals: Approval[];
   events: AuditEvent[];
   aiEnabled: boolean;
+  demo: DemoStatus;
 }
 
 export interface PolicyDraft {
@@ -95,6 +103,8 @@ export const draftPolicy = (agentId: string, text: string): Promise<PolicyDraft>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   });
+
+export const startDemo = () => send("/api/demo/run", { method: "POST" });
 
 export type Connection = "connecting" | "live" | "offline";
 

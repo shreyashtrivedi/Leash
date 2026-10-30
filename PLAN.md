@@ -4,7 +4,7 @@ Leash is a payment firewall for AI agents: an MCP server between any agent and t
 
 **Deadline:** 13 Nov 2026, 1:30 AM IST (12 Nov, noon Pacific). Code and deploy done by 10 Nov, video and text on 11 Nov, submitted on 12 Nov IST.
 
-**Status of this plan:** Stages 1–5 are done (30 Oct). Payouts work end to end through MCP over HTTP and stdio, and show in the sandbox. The dashboard is live, with approvals, timeline, AG Grid audit log, policy editor and spend summary. Invoice create and send also work, after the Invoicing feature was enabled on the app. Refunds are not proven. Section 1 has the results.
+**Status of this plan:** Stages 1–7 are done (30 Oct). Payouts work end to end through MCP over HTTP and stdio, and show in the sandbox. The dashboard is live, with approvals, timeline, AG Grid audit log, policy editor and spend summary. Invoice create and send also work, after the Invoicing feature was enabled on the app. Refunds are not proven. Section 1 has the results.
 
 ### Stage 1 test results
 
@@ -124,9 +124,9 @@ leash/
 │   │   ├── audit.ts
 │   │   ├── db.ts + seed.ts
 │   │   ├── routes.ts           dashboard REST + SSE
-│   │   └── ai/{client,draftPolicy,explain}.ts
+│   │   ├── ai/{client,draftPolicy,explain}.ts
+│   │   └── demo/agent.ts       generic LLM agent using a real MCP client
 │   └── scripts/paypal-smoke.ts Stage 1 script
-├── demo-agent/                 LLM agent using an MCP client
 ├── client/src/                 React (Vite) dashboard
 ├── PLAN.md  README.md  SUBMIT.md  LICENSE  render.yaml  .env.example  .gitignore
 └── package.json                npm workspaces, setup and dev scripts
@@ -134,7 +134,7 @@ leash/
 
 **Dependencies:** `@modelcontextprotocol/sdk`, `zod`, `express`, `better-sqlite3`, `@anthropic-ai/sdk`, `dotenv`, `react`, `vite`, `tsx`, `typescript`, `vitest`. PayPal uses plain `fetch`, and live updates use native SSE.
 
-**AI wrapper:** one `completeJson` function, configured by `AI_PROVIDER`, `AI_API_KEY` and `AI_MODEL`, with Gemini and Groq adapters. The brief's Anthropic default was dropped on 30 Oct to avoid paying for API credit. Gemini refused the first project with 403 (free tier not available for this project, across three models), so Groq is the free route being tested. Free limits aren't guaranteed. Leash enforces policy the same way with no key.
+**AI wrapper:** one `completeJson` function, configured by `AI_PROVIDER`, `AI_API_KEY` and `AI_MODEL`, with Gemini and Groq adapters. Groq with `openai/gpt-oss-20b` is in use and tested live. Gemini refused this project (403, free tier not available), and the brief's Anthropic default was dropped on 30 Oct to avoid paying for API credit. Free limits aren't guaranteed. Leash enforces policy the same way with no key.
 
 **`.env.example` additions:** `LEASH_DEMO_AGENT_KEY` and `DEMO_VENDOR_EMAILS` (the sandbox recipient accounts).
 

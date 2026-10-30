@@ -2,6 +2,7 @@ import { lazy, Suspense, useState } from "react";
 import { useLeashState } from "./api";
 import type { Agent, Connection } from "./api";
 import { ApprovalCard } from "./components/ApprovalCard";
+import { DemoPanel } from "./components/DemoPanel";
 import { PolicyEditor } from "./components/PolicyEditor";
 import { Meter, SpendPanel } from "./components/SpendPanel";
 import { Timeline } from "./components/Timeline";
@@ -132,6 +133,7 @@ export function App() {
                     ))}
                   </section>
                 )}
+                <DemoPanel demo={state.demo} />
                 <section className="panel">
                   <h2>Live timeline · {agent.name}</h2>
                   <Timeline events={agentEvents.slice(0, TIMELINE_LIMIT)} />

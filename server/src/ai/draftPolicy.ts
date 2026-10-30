@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { formatUsd } from "../policy/money.js";
 import { policySchema } from "../policy/types.js";
 import type { Policy } from "../policy/types.js";
 import type { AiClient } from "./client.js";
@@ -20,9 +21,9 @@ const draftSchema = z.object({
 
 const SYSTEM = `You convert a person's plain-English spending rules for an AI agent into settings.
 Return null for any setting the text does not mention. Never invent a value.
-- perTransactionCapDollars: the most any single payment may ever be. Above it is refused.
-- autoApproveLimitDollars: the amount up to which the agent may pay without asking. "Ask me above X" sets this to X.
-- If one amount is given as both the most per payment and the point to ask, use it for autoApproveLimitDollars and return null for perTransactionCapDollars unless a separate hard maximum is stated.
+- autoApproveLimitDollars: the amount the agent may pay without asking a human. Phrases like "up to $10 by yourself", "on its own", "without asking", "auto-approve up to $10" and "ask me above $10" all set this to 10.
+- perTransactionCapDollars: a hard maximum for one payment that even a human approval cannot pass. Set it only for phrases like "never more than $50", "hard maximum of $50" or "block anything over $50". "Pay up to $10" alone is not a hard maximum.
+- If one amount is given as both the most per payment and the point to ask, use it for autoApproveLimitDollars and return null for perTransactionCapDollars.
 - dailyBudgetDollars and totalBudgetDollars: limits per day and overall.
 - requireVerifiedRecipient: true when the text limits payments to verified vendors.
 - blockedCategories and allowedCategories: lower-case single words, for example gambling, crypto, software.
@@ -43,6 +44,13 @@ const LABELS: Record<keyof z.infer<typeof draftSchema>, string> = {
   maxPaymentsPerHour: "payments per hour",
   allowedCurrencies: "allowed currencies",
 };
+
+const LIMITS: [keyof Policy & `${string}Cents`, string][] = [
+  ["perTransactionCapCents", "per-payment cap"],
+  ["autoApproveLimitCents", "auto-approve limit"],
+  ["dailyBudgetCents", "daily budget"],
+  ["totalBudgetCents", "total budget"],
+];
 
 const toCents = (dollars: number | null, current: number) =>
   dollars === null ? current : Math.round(dollars * 100);
@@ -85,6 +93,16 @@ export async function draftPolicy(ai: AiClient, text: string, current: Policy): 
   }
   if (policy.perTransactionCapCents > policy.dailyBudgetCents) {
     warnings.push("The per-payment cap is above the daily budget, so the daily budget is the real limit.");
+  }
+
+  // Plain code, so a misleading or injected instruction can't hide what the draft loosens.
+  for (const [key, label] of LIMITS) {
+    if (policy[key] > current[key]) {
+      warnings.push(`This raises the ${label} from ${formatUsd(current[key])} to ${formatUsd(policy[key])}.`);
+    }
+  }
+  if (current.requireVerifiedRecipient && !policy.requireVerifiedRecipient) {
+    warnings.push("This turns off the verified vendors rule.");
   }
 
   return { policy, unchanged, warnings };

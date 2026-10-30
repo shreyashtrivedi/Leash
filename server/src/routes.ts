@@ -3,6 +3,7 @@ import { Router } from "express";
 import type { AiClient } from "./ai/client.js";
 import { draftPolicy } from "./ai/draftPolicy.js";
 import type { Db } from "./db.js";
+import type { DemoStatus } from "./demo/agent.js";
 import { addAuditEvent, auditBus, findAgentByKey, getAgent, listAgents, listAuditEvents, saveAgentPolicy } from "./db.js";
 import { createMcpServer } from "./mcp/tools.js";
 import type { PaymentService } from "./payments.js";
@@ -34,7 +35,12 @@ export function mcpRoutes(db: Db, payments: PaymentService): Router {
   return router;
 }
 
-export function dashboardRoutes(db: Db, payments: PaymentService, ai: AiClient | null): Router {
+interface DemoControls {
+  status(): DemoStatus;
+  start(): boolean;
+}
+
+export function dashboardRoutes(db: Db, payments: PaymentService, ai: AiClient | null, demo: DemoControls): Router {
   const router = Router();
 
   router.get("/api/state", (_req, res) => {
@@ -43,6 +49,7 @@ export function dashboardRoutes(db: Db, payments: PaymentService, ai: AiClient |
       approvals: payments.listPendingApprovals(),
       events: listAuditEvents(db, 500),
       aiEnabled: ai !== null,
+      demo: demo.status(),
     });
   });
 
@@ -62,6 +69,18 @@ export function dashboardRoutes(db: Db, payments: PaymentService, ai: AiClient |
       clearInterval(heartbeat);
       auditBus.off("event", notify);
     });
+  });
+
+  router.post("/api/demo/run", (_req, res) => {
+    if (!demo.status().available) {
+      res.status(503).json({ error: "The demo agent needs an AI key and DEMO_VENDOR_EMAILS." });
+      return;
+    }
+    if (!demo.start()) {
+      res.status(409).json({ error: "The demo agent is already running." });
+      return;
+    }
+    res.status(202).json({ started: true });
   });
 
   // Only returns a draft for the human to review. Saving stays a separate step.

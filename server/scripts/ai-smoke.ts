@@ -64,7 +64,8 @@ for (const facts of [
 ]) {
   const started = Date.now();
   try {
-    console.log(`\nEXPLAIN ${facts.outcome} (${Date.now() - started}ms):`, await explain(facts));
+    const explanation = await explain(facts);
+    console.log(`\nEXPLAIN ${facts.outcome} (${Date.now() - started}ms):`, explanation);
   } catch (err) {
     console.log(`\nEXPLAIN FAILED: ${(err as Error).name}: ${(err as Error).message}`);
   }

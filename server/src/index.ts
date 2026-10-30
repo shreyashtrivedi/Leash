@@ -4,11 +4,12 @@ import express from "express";
 import { createAiClient } from "./ai/client.js";
 import { createExplainer } from "./ai/explain.js";
 import { config } from "./config.js";
-import { openDb } from "./db.js";
+import { addAuditEvent, auditBus, openDb } from "./db.js";
+import { createDemoRunner, runDemoAgent } from "./demo/agent.js";
 import { createPaymentService } from "./payments.js";
 import { createPayPalClient } from "./paypal.js";
 import { approvalRoutes, dashboardRoutes, mcpRoutes } from "./routes.js";
-import { seed } from "./seed.js";
+import { DEMO_AGENT_ID, seed } from "./seed.js";
 
 const db = openDb(config.dbPath);
 seed(db);
@@ -18,10 +19,30 @@ const payments = createPaymentService(db, createPayPalClient(config.paypalClient
   explain: ai ? createExplainer(ai) : null,
 });
 
+const noteFromAgent = (type: string, summary: string) =>
+  addAuditEvent(db, { agentId: DEMO_AGENT_ID, paymentId: null, type, summary });
+
+const demo = createDemoRunner(
+  ai && config.demoVendorEmails.length > 0
+    ? async () => {
+        const report = await runDemoAgent({
+          ai,
+          mcpUrl: `http://localhost:${config.port}/mcp`,
+          apiKey: config.demoAgentKey,
+          vendors: config.demoVendorEmails,
+          onThought: (thought) => noteFromAgent("agent.note", thought),
+        });
+        noteFromAgent("agent.report", report);
+        return report;
+      }
+    : null,
+  () => auditBus.emit("event"),
+);
+
 const app = express();
 app.use(express.json());
 app.use(mcpRoutes(db, payments));
-app.use(dashboardRoutes(db, payments, ai));
+app.use(dashboardRoutes(db, payments, ai, demo));
 app.use(approvalRoutes(payments));
 
 const clientDist = fileURLToPath(new URL("../../client/dist", import.meta.url));

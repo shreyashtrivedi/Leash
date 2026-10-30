@@ -25,6 +25,8 @@ export const EVENT_LABELS: Record<string, { label: string; tone: Tone; icon: str
   "payment.executed": { label: "Paid", tone: "good", icon: "paid" },
   "payment.failed": { label: "Failed", tone: "bad", icon: "alert" },
   "payment.unconfirmed": { label: "Unconfirmed", tone: "warn", icon: "alert" },
+  "agent.note": { label: "Agent", tone: "neutral", icon: "agent" },
+  "agent.report": { label: "Agent report", tone: "neutral", icon: "agent" },
   "policy.updated": { label: "Policy", tone: "neutral", icon: "shield" },
 };
 
