@@ -22,8 +22,8 @@ export function DemoPanel({ demo }: { demo: DemoStatus }) {
         <div>
           <h2>Try it with a real AI agent</h2>
           <p>
-            A general-purpose AI agent connects over MCP with one task: pay three bills. It has no PayPal credentials and
-            no knowledge of the rules. Leash decides each payment for real in the sandbox, and one will wait for you here.
+            A general-purpose AI agent connects over MCP with one task: pay three bills. It has no PayPal credentials, and
+            none of the rules are in its code. Leash decides each payment for real in the sandbox, and one will wait for you here.
           </p>
         </div>
         <button className="button primary" disabled={demo.running} onClick={start}>
