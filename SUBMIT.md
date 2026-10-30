@@ -28,7 +28,7 @@ For each request, deterministic code picks one of three outcomes:
 - **Block:** the agent gets the exact rule that stopped it, so it can change its plan.
 - **Hold:** an approval card appears live on the dashboard, and nothing moves until a human approves.
 
-The dashboard shows a live timeline, approval cards, per-agent spending, a policy editor, and a searchable audit log with a tamper-evident hash chain.
+The dashboard shows each payment travelling through a live gate that's closed by default. Held payments appear as unsigned cheques for a human to approve, and a stamped ledger, spending summary, policy editor and searchable audit log with a tamper-evident hash chain complete the picture.
 
 ### How we built it
 
@@ -100,6 +100,8 @@ Check the submission form for how to enter these.
 - [ ] No copyrighted music, and no third-party trademarks or material without permission
 - [ ] Covers the problem, who it's for and why it matters, not just features
 - [ ] Rehearse the demo agent first, because an AI's choices can vary between runs
+- [ ] Plan around Groq's free quota: it refills slowly, so space out rehearsals, and check at [console.groq.com](https://console.groq.com) if the demo says the quota has run out
+- [ ] Record on the main model. If the quota has run out, the backup model may stop before the $30 approval, so wait and try again
 - [ ] Click **Reset demo** and enter the password (`leash-demo`) before recording, so the prompt doesn't interrupt the take
 - [ ] Wake the hosted app before recording, or record locally
 - [ ] Zoom the browser to 125% or so, so text is readable
@@ -113,9 +115,9 @@ Check the submission form for how to enter these.
 "I describe the rules in plain English. AI drafts them, and I review them. Only what I save is enforced, and from here on, plain code decides. The AI never does."
 
 **0:50–1:55 — The agent.** Go to Overview and click **Run demo agent**.
-"This is a real AI agent, connected over MCP. It has no PayPal credentials, just a task: pay three bills. Twelve dollars, under the limit, so PayPal pays it automatically." Point to the timeline when it reaches **Paid**.
-"Now it tries the $120 annual plan. Blocked. Over the $50 cap. And the agent reads why, and moves to the $20 monthly plan by itself."
-"Then $30. That's over what it can spend alone, so it stops and waits for me. Here's the card: the amount, the reason, and a plain-English summary. I approve, and PayPal pays."
+"This is a real AI agent, connected over MCP. It has no PayPal credentials, just a task: pay three bills. Twelve dollars, under the limit, so PayPal pays it automatically." Point to the gate as the payment passes through, and to the **PAID** stamp on the ledger.
+"Now it tries the $120 annual plan. The gate stays shut. Blocked. Over the $50 cap. And the agent reads why, and moves to the $20 monthly plan by itself."
+"Then $30. That's over what it can spend alone, so it stops at the gate and waits for me. Here's the unsigned cheque: the amount, the reason, and a plain-English summary. I approve, and PayPal pays."
 
 **1:55–2:15 — The proof.** Show the sandbox dashboard with the transactions, then the Audit log tab and hash chain badge.
 "These are real PayPal sandbox transactions. Every decision is in an audit log with a hash chain, so edits can be detected."

@@ -32,15 +32,15 @@ function fakeTools(results: Record<string, unknown>[]) {
   return { tools, calls };
 }
 
-const pay = { thought: "Paying.", action: "pay", arguments_json: '{"amount":"12.00"}' };
-const finish = { thought: "All paid, trust me.", action: "finish", arguments_json: "{}" };
-const options = { vendors: ["vendor@example.com"], onThought: () => {}, pollMs: 1, retryMs: 1 };
+const pay = { still_to_do: "1", thought: "Paying.", action: "pay", arguments_json: '{"amount":"12.00"}' };
+const finish = { still_to_do: "nothing", thought: "All paid, trust me.", action: "finish", arguments_json: "{}" };
+const options = { vendors: ["vendor@example.com"], onThought: () => {}, pollMs: 1, retryMs: 1, pauseMs: 0 };
 
 describe("agent loop", () => {
   it("runs actions in order and returns the report", async () => {
     const { ai } = scriptedAi([pay, finish, finish]);
     const { tools, calls } = fakeTools([{ status: "executed", amount: "12.00", currency: "USD" }]);
-    expect(await runAgentLoop({ ...options, ai, tools })).toBe("12.00 USD: executed");
+    expect(await runAgentLoop({ ...options, ai, tools })).toBe("$12.00 paid");
     expect(calls).toEqual([["pay", { amount: "12.00" }]]);
   });
 
@@ -49,7 +49,7 @@ describe("agent loop", () => {
     const { tools, calls } = fakeTools([{ status: "executed", amount: "12.00", currency: "USD" }]);
     const thoughts: string[] = [];
     const report = await runAgentLoop({ ...options, ai, tools, onThought: (thought) => thoughts.push(thought) });
-    expect(report).toBe("12.00 USD: executed");
+    expect(report).toBe("$12.00 paid");
     expect(calls).toHaveLength(1);
     expect(prompts[1]).toContain("you have not taken any action yet");
     expect(thoughts).toEqual(["Paying.", "All paid, trust me."]);
@@ -76,7 +76,7 @@ describe("agent loop", () => {
     const { ai } = scriptedAi([pay, finish, finish]);
     const { tools } = fakeTools([{ status: "blocked", amount: "120.00", currency: "USD" }]);
     const report = await runAgentLoop({ ...options, ai, tools });
-    expect(report).toBe("120.00 USD: blocked");
+    expect(report).toBe("$120.00 blocked");
     expect(report).not.toContain("trust me");
   });
 
@@ -159,6 +159,17 @@ describe("demo runner", () => {
     expect(demo.reset()).toBe(true);
     expect(restored).toBe(1);
     expect(demo.status().report).toBeNull();
+  });
+
+  it("says so plainly when the AI quota runs out", async () => {
+    const demo = createDemoRunner(async () => {
+      throw new Error("Groq returned 429: tokens per day");
+    }, () => {});
+    demo.start();
+    await flush();
+    await flush();
+    expect(demo.status().error).toContain("free AI quota");
+    expect(demo.status().error).toContain("Payments and rules still work");
   });
 
   it("is unavailable without an AI key", () => {

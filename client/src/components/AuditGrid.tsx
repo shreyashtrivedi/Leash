@@ -11,12 +11,13 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 const theme = themeQuartz.withParams({
   fontFamily: "'Instrument Sans', system-ui, sans-serif",
   fontSize: 14,
-  accentColor: "#1F5F4A",
-  borderColor: "#E3E1D9",
-  headerBackgroundColor: "#FAF9F5",
-  headerTextColor: "#5E6470",
-  foregroundColor: "#16181D",
-  rowHoverColor: "#F4F3EE",
+  accentColor: "#143A2D",
+  backgroundColor: "#FFFDF8",
+  borderColor: "#E2DACB",
+  headerBackgroundColor: "#F4EFE4",
+  headerTextColor: "#6B675C",
+  foregroundColor: "#1C1B17",
+  rowHoverColor: "#FBF8F1",
   wrapperBorderRadius: 12,
 });
 

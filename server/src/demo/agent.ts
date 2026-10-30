@@ -11,12 +11,15 @@ const TOOL_TIMEOUT_MS = 90_000;
 const AI_ATTEMPTS = 4;
 const RATE_LIMIT_RETRY_MS = 12_000;
 const AI_RETRY_MS = 2000;
+// A short beat after each action, so a person watching can read what just happened.
+const STEP_PAUSE_MS = 2500;
 
 // A general purchasing agent. Nothing here knows Leash's rules: it learns its tools
 // from the MCP server and its limits from the responses it gets back.
 const SYSTEM = `You are an autonomous purchasing agent. You work one step at a time, and you reply only with a JSON object:
+- still_to_do: every numbered purchase in the task that has no result yet, or "nothing" if all of them have a result
 - thought: one short first-person sentence for a human reading your log
-- action: the name of the next action, or "finish" when every purchase has been dealt with
+- action: the name of the next action, or "finish" only when still_to_do is "nothing"
 - arguments_json: the action's arguments as a JSON string. For finish use {}.
 Nothing has happened until an action's result says so, so never assume a payment went through.
 Handle the purchases in order, one action at a time, and read every result carefully before deciding what to do next.
@@ -84,6 +87,7 @@ export interface AgentLoopOptions {
   onThought: (thought: string) => void;
   pollMs?: number;
   retryMs?: number;
+  pauseMs?: number;
 }
 
 export interface DemoAgentOptions extends Omit<AgentLoopOptions, "tools"> {
@@ -93,6 +97,11 @@ export interface DemoAgentOptions extends Omit<AgentLoopOptions, "tools"> {
 
 // The summary is built from real results, never from the model's words, because a
 // model can describe payments that never happened.
+function describeOutcome(result: ToolResult): string {
+  const money = result.currency === "USD" ? `$${result.amount}` : `${result.amount} ${result.currency}`;
+  return `${money} ${result.status === "executed" ? "paid" : result.status}`;
+}
+
 function summarize(outcomes: string[]): string {
   return outcomes.length > 0 ? outcomes.join(" · ") : "The agent did not attempt any payment.";
 }
@@ -100,11 +109,13 @@ function summarize(outcomes: string[]): string {
 export async function runAgentLoop(options: AgentLoopOptions): Promise<string> {
   const { ai, tools, vendors, onThought, retryMs } = options;
   const pollMs = options.pollMs ?? POLL_MS;
+  const pauseMs = options.pauseMs ?? STEP_PAUSE_MS;
   const deadline = Date.now() + RUN_LIMIT_MS;
   const outcomes: string[] = [];
   let reviewed = false;
 
   const stepSchema = z.object({
+    still_to_do: z.string(),
     thought: z.string(),
     action: z.enum([...tools.names, "finish"]),
     arguments_json: z.string(),
@@ -154,8 +165,9 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<string> {
       if (next.action === "finish") return summarize(outcomes);
 
       const result = await settle(await tools.call(next.action, args));
-      if (result.amount) outcomes.push(`${result.amount} ${result.currency}: ${result.status}`);
+      if (result.amount) outcomes.push(describeOutcome(result));
       transcript.push(`Step ${step + 1}: you took action ${next.action} with ${JSON.stringify(args)}.\nResult: ${JSON.stringify(result)}`);
+      await new Promise((resolve) => setTimeout(resolve, pauseMs));
   }
   return `The agent stopped before finishing. ${summarize(outcomes)}`;
 }
@@ -201,7 +213,12 @@ export function createDemoRunner(
         .then((report) => Object.assign(status, { report }))
         .catch((err) => {
           console.error(`Demo agent failed: ${(err as Error).message}`);
-          Object.assign(status, { error: "The demo agent could not finish. Try again in a minute." });
+          const outOfQuota = (err as Error).message.includes("429");
+          Object.assign(status, {
+            error: outOfQuota
+              ? "The free AI quota has run out for now, so the demo agent can't continue. Payments and rules still work. Try again later."
+              : "The demo agent could not finish. Try again in a minute.",
+          });
         })
         .finally(() => {
           status.running = false;

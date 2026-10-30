@@ -202,14 +202,33 @@ export function verifyAuditChain(db: Db): { intact: boolean; events: number } {
   return { intact: true, events: rows.length };
 }
 
-export function listAuditEvents(db: Db, limit: number): AuditEvent[] {
+export interface LedgerEvent extends AuditEvent {
+  payment_kind: PaymentKind | null;
+  payment_amount: string | null;
+  payment_currency: string | null;
+  payment_recipient: string | null;
+  payment_memo: string | null;
+  payment_category: string | null;
+  payment_status: PaymentStatus | null;
+  payment_transaction_id: string | null;
+  payment_paypal_status: string | null;
+  recipient_name: string | null;
+}
+
+export function listAuditEvents(db: Db, limit: number): LedgerEvent[] {
   return db
     .prepare(
-      `SELECT e.*, CASE WHEN e.type IN ('decision.deny', 'decision.require_approval') THEN p.explanation END AS explanation
-       FROM audit_events e LEFT JOIN payments p ON p.id = e.payment_id
+      `SELECT e.*, CASE WHEN e.type IN ('decision.deny', 'decision.require_approval') THEN p.explanation END AS explanation,
+         p.kind AS payment_kind, p.amount AS payment_amount, p.currency AS payment_currency,
+         p.recipient AS payment_recipient, p.memo AS payment_memo, p.category AS payment_category,
+         p.status AS payment_status, p.transaction_id AS payment_transaction_id,
+         p.paypal_status AS payment_paypal_status, r.name AS recipient_name
+       FROM audit_events e
+       LEFT JOIN payments p ON p.id = e.payment_id
+       LEFT JOIN recipients r ON r.email = p.recipient
        ORDER BY e.at DESC, e.id DESC LIMIT ?`,
     )
-    .all(limit) as AuditEvent[];
+    .all(limit) as LedgerEvent[];
 }
 
 export const parseRuleResults = (row: PaymentRow): RuleResult[] => JSON.parse(row.rule_results);

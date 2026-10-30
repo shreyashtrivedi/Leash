@@ -45,10 +45,10 @@ export function SpendPanel({ agent }: { agent: Agent }) {
 
   return (
     <aside className="panel spend">
-      <h2>Spend</h2>
+      <h2>The allowance</h2>
       <Budget label="Today" used={spend.spentTodayCents} limit={policy.dailyBudgetCents} remaining={spend.remainingTodayCents} />
       <Budget label="All time" used={spend.spentTotalCents} limit={policy.totalBudgetCents} remaining={spend.remainingTotalCents} />
-      <h2>Active limits</h2>
+      <h2>The rules</h2>
       <dl>
         {limits.map(([term, value]) => (
           <div key={term}>

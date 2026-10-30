@@ -505,8 +505,12 @@ export function createPaymentService(
 
     listPendingApprovals() {
       const rows = db
-        .prepare("SELECT * FROM payments WHERE status = 'pending_approval' ORDER BY created_at")
-        .all() as PaymentRow[];
+        .prepare(
+          `SELECT p.*, r.name AS recipient_name FROM payments p
+           LEFT JOIN recipients r ON r.email = p.recipient
+           WHERE p.status = 'pending_approval' ORDER BY p.created_at`,
+        )
+        .all() as (PaymentRow & { recipient_name: string | null })[];
       return rows.map((row) => ({ ...row, rule_results: parseRuleResults(row) }));
     },
 

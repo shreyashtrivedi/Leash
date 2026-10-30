@@ -137,7 +137,7 @@ leash/
 
 **Dependencies:** `@modelcontextprotocol/sdk`, `zod`, `express`, `better-sqlite3`, `react`, `ag-grid-community`, `ag-grid-react`, `vite`, `tsx`, `typescript`, `vitest`. PayPal and Groq use plain `fetch`, and live updates use native SSE.
 
-**AI wrapper:** one `completeJson` function, configured by `AI_PROVIDER`, `AI_API_KEY` and `AI_MODEL`. Groq with `openai/gpt-oss-120b` is the only adapter, tested live. It was chosen over `openai/gpt-oss-20b` after scored demo runs. The brief's Anthropic default was dropped on 30 Oct to avoid paying for API credit, and Gemini was removed after Google refused the project (403, free tier not available). Free limits aren't guaranteed. Leash enforces policy the same way with no key.
+**AI wrapper:** one `completeJson` function, configured by `AI_PROVIDER`, `AI_API_KEY` and `AI_MODEL`. Groq with `openai/gpt-oss-120b` is the only adapter, tested live. It was chosen over `openai/gpt-oss-20b` after scored demo runs. The brief's Anthropic default was dropped on 30 Oct to avoid paying for API credit, and Gemini was removed after Google refused the project (403, free tier not available). It falls back to `openai/gpt-oss-20b` for an hour if the main model hits its free daily limit. Free limits aren't guaranteed. Leash enforces policy the same way with no key.
 
 **`.env.example` additions:** `LEASH_DEMO_AGENT_KEY` and `DEMO_VENDOR_EMAILS` (the sandbox recipient accounts).
 

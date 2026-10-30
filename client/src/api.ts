@@ -46,6 +46,7 @@ export interface Approval {
   currency: string;
   category: string;
   memo: string;
+  recipient_name: string | null;
   explanation: string | null;
   created_at: string;
   rule_results: RuleResult[];
@@ -60,6 +61,16 @@ export interface AuditEvent {
   summary: string;
   sample: number;
   explanation: string | null;
+  payment_kind: "payment" | "refund" | "invoice" | null;
+  payment_amount: string | null;
+  payment_currency: string | null;
+  payment_recipient: string | null;
+  payment_memo: string | null;
+  payment_category: string | null;
+  payment_status: string | null;
+  payment_transaction_id: string | null;
+  payment_paypal_status: string | null;
+  recipient_name: string | null;
 }
 
 export interface DemoStatus {

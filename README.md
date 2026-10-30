@@ -19,7 +19,7 @@ Leash moves enforcement out of the model. The agent never holds PayPal credentia
 3. **Leash decides** in plain code, with no LLM involved:
    - **Allow:** PayPal pays automatically, and the real transaction ID goes back to the agent.
    - **Block:** the agent gets the exact rule that stopped it, so it can adapt.
-   - **Hold:** an approval card appears live on the dashboard, and nothing moves until you approve.
+   - **Hold:** an unsigned cheque appears live on the dashboard, and nothing moves until you approve.
 4. **Everything is logged** in a hash-chained, append-only audit trail.
 
 ## Architecture
@@ -59,7 +59,7 @@ The AI has two real jobs, and neither of them enforces anything.
 - **Policy authoring:** "ask me above $20, never more than $45 at once, never for gambling" becomes structured rules. The model's output is validated, and the human reviews it before it counts. Plain code flags any draft that raises a limit or turns off the verified vendors rule, so a misleading instruction can't hide in a long draft.
 - **Decision summaries:** blocked and held payments get a short plain-English summary. It's written after the decision is final, and if the AI fails, Leash carries on with the rule's own reason.
 
-The default model is `openai/gpt-oss-120b` on Groq, with structured JSON output. Set `AI_PROVIDER`, `AI_API_KEY` and `AI_MODEL` to configure it. A new provider is one entry in [client.ts](server/src/ai/client.ts).
+The default model is `openai/gpt-oss-120b` on Groq, with structured JSON output. If it reaches its free daily limit, Leash switches to `openai/gpt-oss-20b`. Set `AI_PROVIDER`, `AI_API_KEY` and `AI_MODEL` to configure it. A new provider is one entry in [client.ts](server/src/ai/client.ts).
 
 **Without an AI key, enforcement works exactly the same.** You lose drafting, summaries and the demo agent button.
 
@@ -189,7 +189,7 @@ Each agent has its own API key and policy: per-payment cap, auto-approve limit, 
 - **The hash chain is tamper-evident, not tamper-proof.** It detects edits and gaps, but someone who rewrites the whole database and every hash wouldn't be caught.
 - **The hosted database resets on restart.** Render's free disk is temporary, so agents and policies re-seed on boot. Each demo run also clears the demo agent's spend counters, and the audit log keeps the history. Entries marked **Sample** are illustrative, have no PayPal IDs and never count towards budgets.
 - **The demo agent's task names a preference.** It's told to try the annual plan first, otherwise it reads its limits and skips straight to the cheaper plan. The block that follows is still real, and the agent's code contains no Leash rules. Models vary between runs, so the run summary is built from real results rather than the model's words.
-- **Free AI quota.** Groq's limits aren't guaranteed, so summaries may be missing under heavy use. Payments are unaffected. Don't put private information in the policy box, because it's sent to the AI provider.
+- **Free AI quota.** Groq's free limits are per model and per day, about 200,000 tokens each in our account, which allows roughly 20 demo runs per model. The quota refills gradually rather than all at once, and the smaller backup model doesn't always reach the approval step. When both run out, the demo agent says so and summaries stop, and payments and rules carry on unaffected. Don't put private information in the policy box, because it's sent to the AI provider.
 
 ## License
 

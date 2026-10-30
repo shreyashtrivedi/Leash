@@ -1,19 +1,19 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { setPasswordPrompt, useLeashState } from "./api";
-import type { Agent, Connection } from "./api";
+import type { Connection } from "./api";
 import { ApprovalCard } from "./components/ApprovalCard";
-import { DemoPanel } from "./components/DemoPanel";
+import { GateHero } from "./components/GateHero";
+import { Ledger } from "./components/Ledger";
 import { PasswordDialog } from "./components/PasswordDialog";
 import { PolicyEditor } from "./components/PolicyEditor";
-import { Meter, SpendPanel } from "./components/SpendPanel";
-import { Timeline } from "./components/Timeline";
-import { usd } from "./format";
+import { SpendPanel } from "./components/SpendPanel";
+import { buildLedger, currentRun } from "./ledger";
 
 const AuditGrid = lazy(() => import("./components/AuditGrid"));
 
 type View = "overview" | "audit" | "policy";
 
-const TIMELINE_LIMIT = 30;
+const LEDGER_LIMIT = 40;
 
 const VIEWS: [View, string][] = [
   ["overview", "Overview"],
@@ -29,46 +29,18 @@ const CONNECTION_LABELS: Record<Connection, string> = {
 
 function Logo() {
   return (
-    <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true">
-      <rect width="32" height="32" rx="8" fill="var(--accent)" />
-      <circle cx="12" cy="12" r="5" fill="none" stroke="#fff" strokeWidth="3" />
-      <path d="M16 16l9 9" stroke="#fff" strokeWidth="3" strokeLinecap="round" />
+    <svg width="34" height="34" viewBox="0 0 32 32" aria-hidden="true">
+      <rect width="32" height="32" rx="9" fill="var(--forest)" />
+      <circle cx="11.5" cy="20.5" r="5.5" fill="none" stroke="var(--mint)" strokeWidth="2.6" />
+      <path
+        d="M15.6 16.6C20 13 17.6 8.8 22.4 7.8"
+        fill="none"
+        stroke="var(--paper)"
+        strokeWidth="2.6"
+        strokeLinecap="round"
+      />
+      <circle cx="24.4" cy="7.4" r="2.5" fill="var(--paper)" />
     </svg>
-  );
-}
-
-function AgentRail({
-  agents,
-  selected,
-  pending,
-  onSelect,
-}: {
-  agents: Agent[];
-  selected: string;
-  pending: (id: string) => number;
-  onSelect: (id: string) => void;
-}) {
-  return (
-    <nav className="rail" aria-label="Agents">
-      <h2>Agents</h2>
-      {agents.map((agent) => (
-        <button
-          key={agent.id}
-          className={`rail-agent ${agent.id === selected ? "active" : ""}`}
-          aria-current={agent.id === selected}
-          onClick={() => onSelect(agent.id)}
-        >
-          <span className="rail-name">
-            {agent.name}
-            {pending(agent.id) > 0 && <b>{pending(agent.id)} waiting</b>}
-          </span>
-          <Meter used={agent.spend.spentTodayCents} limit={agent.policy.dailyBudgetCents} label={`${agent.name} spend today`} />
-          <small>
-            {usd(agent.spend.spentTodayCents)} of {usd(agent.policy.dailyBudgetCents)} today
-          </small>
-        </button>
-      ))}
-    </nav>
   );
 }
 
@@ -105,18 +77,38 @@ export function App() {
 
   const nameOf = (id: string) => state.agents.find((candidate) => candidate.id === id)?.name ?? id;
   const pending = (id: string) => state.approvals.filter((approval) => approval.agent_id === id).length;
-  const agentEvents = state.events.filter((event) => event.agent_id === agent.id);
+  const { entries, samples } = buildLedger(state.events.filter((event) => event.agent_id === agent.id));
 
   return (
     <div className="app">
       <header className="topbar">
         <div className="brand">
           <Logo />
-          <div>
-            <strong>Leash</strong>
-            <span>Payment firewall for AI agents</span>
-          </div>
+          <strong>Leash</strong>
         </div>
+
+        <nav className="agents" aria-label="Agents">
+          {state.agents.map((candidate) => (
+            <button
+              key={candidate.id}
+              className={candidate.id === agent.id ? "active" : ""}
+              aria-current={candidate.id === agent.id}
+              onClick={() => setSelectedId(candidate.id)}
+            >
+              {candidate.name}
+              {pending(candidate.id) > 0 && <b>{pending(candidate.id)}</b>}
+            </button>
+          ))}
+        </nav>
+
+        <div className="tabs" role="tablist">
+          {VIEWS.map(([id, label]) => (
+            <button key={id} role="tab" aria-selected={view === id} className={view === id ? "active" : ""} onClick={() => setView(id)}>
+              {label}
+            </button>
+          ))}
+        </div>
+
         <div className="topbar-status">
           <span className="pill">PayPal sandbox</span>
           <span className={`pill connection ${connection}`}>
@@ -125,20 +117,10 @@ export function App() {
         </div>
       </header>
 
-      <div className="layout">
-        <AgentRail agents={state.agents} selected={agent.id} pending={pending} onSelect={setSelectedId} />
-
-        <main>
-          <div className="tabs" role="tablist">
-            {VIEWS.map(([id, label]) => (
-              <button key={id} role="tab" aria-selected={view === id} className={view === id ? "active" : ""} onClick={() => setView(id)}>
-                {label}
-                {id === "overview" && state.approvals.length > 0 && <b>{state.approvals.length}</b>}
-              </button>
-            ))}
-          </div>
-
-          {view === "overview" && (
+      <main className="page">
+        {view === "overview" && (
+          <>
+            <GateHero agentName={agent.name} run={currentRun(entries)} demo={state.demo} waiting={state.approvals.length > 0} />
             <div className="overview">
               <div className="overview-main">
                 {state.approvals.length > 0 && (
@@ -148,30 +130,21 @@ export function App() {
                     ))}
                   </section>
                 )}
-                <DemoPanel demo={state.demo} waiting={state.approvals.length > 0} />
-                <section className="panel">
-                  <h2>Live timeline · {agent.name}</h2>
-                  <Timeline events={agentEvents.slice(0, TIMELINE_LIMIT)} />
-                  {agentEvents.length > TIMELINE_LIMIT && (
-                    <button className="link" onClick={() => setView("audit")}>
-                      See the full history in the audit log
-                    </button>
-                  )}
-                </section>
+                <Ledger entries={entries} samples={samples} limit={LEDGER_LIMIT} onSeeAll={() => setView("audit")} />
               </div>
               <SpendPanel agent={agent} />
             </div>
-          )}
+          </>
+        )}
 
-          {view === "audit" && (
-            <Suspense fallback={<p className="empty">Loading the audit log</p>}>
-              <AuditGrid events={state.events} agents={state.agents} chain={state.auditChain} />
-            </Suspense>
-          )}
+        {view === "audit" && (
+          <Suspense fallback={<p className="empty">Loading the audit log</p>}>
+            <AuditGrid events={state.events} agents={state.agents} chain={state.auditChain} />
+          </Suspense>
+        )}
 
-          {view === "policy" && <PolicyEditor agent={agent} aiEnabled={state.aiEnabled} onSaved={refresh} />}
-        </main>
-      </div>
+        {view === "policy" && <PolicyEditor agent={agent} aiEnabled={state.aiEnabled} onSaved={refresh} />}
+      </main>
 
       {passwordRequest && (
         <PasswordDialog
