@@ -12,6 +12,10 @@
     "typecheck": "npm run typecheck --workspace server",
     "dev": "node dev.mjs",
     "build": "npm run build --workspace client",
-    "start": "npm start --workspace server"
+    "start": "npm start --workspace server",
+    "setup": "node setup.mjs"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

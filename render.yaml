@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: leash
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/state
+    envVars:
+      - key: NODE_VERSION
+        value: 22.17.0
+      # Leash refuses to start with any other value.
+      - key: PAYPAL_ENV
+        value: sandbox
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: AI_PROVIDER
+        value: groq
+      - key: AI_API_KEY
+        sync: false
+      - key: LEASH_DEMO_AGENT_KEY
+        generateValue: true
+      - key: DEMO_VENDOR_EMAILS
+        sync: false

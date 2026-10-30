@@ -18,7 +18,7 @@ function required(name: string): string {
 export const config = {
   paypalClientId: required("PAYPAL_CLIENT_ID"),
   paypalClientSecret: required("PAYPAL_CLIENT_SECRET"),
-  aiProvider: process.env.AI_PROVIDER || "gemini",
+  aiProvider: process.env.AI_PROVIDER || "groq",
   aiApiKey: process.env.AI_API_KEY ?? "",
   aiModel: process.env.AI_MODEL ?? "",
   port: Number(process.env.PORT ?? 3000),
