@@ -1,5 +1,7 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Router } from "express";
+import type { RequestHandler } from "express";
 import type { AiClient } from "./ai/client.js";
 import { draftPolicy } from "./ai/draftPolicy.js";
 import type { Db } from "./db.js";
@@ -47,10 +49,37 @@ export function mcpRoutes(db: Db, payments: PaymentService): Router {
 interface DemoControls {
   status(): DemoStatus;
   start(): boolean;
+  reset(): boolean;
 }
 
-export function dashboardRoutes(db: Db, payments: PaymentService, ai: AiClient | null, demo: DemoControls): Router {
+export interface DashboardAuth {
+  password: string;
+  hint: string;
+}
+
+const digest = (value: string) => createHash("sha256").update(value).digest();
+
+// Agents hold an MCP key and nothing else, so with a password set they can't approve
+// their own payments. Reading stays open, because only decisions need protecting.
+function requirePassword(password: string): RequestHandler {
+  return (req, res, next) => {
+    if (!password || timingSafeEqual(digest(req.get("x-leash-password") ?? ""), digest(password))) {
+      next();
+      return;
+    }
+    res.status(401).json({ error: "The dashboard password is required.", passwordRequired: true });
+  };
+}
+
+export function dashboardRoutes(
+  db: Db,
+  payments: PaymentService,
+  ai: AiClient | null,
+  demo: DemoControls,
+  auth: DashboardAuth,
+): Router {
   const router = Router();
+  const guard = requirePassword(auth.password);
 
   router.get("/api/state", (_req, res) => {
     res.json({
@@ -60,6 +89,7 @@ export function dashboardRoutes(db: Db, payments: PaymentService, ai: AiClient |
       auditChain: verifyAuditChain(db),
       aiEnabled: ai !== null,
       demo: demo.status(),
+      auth: { required: Boolean(auth.password), hint: auth.hint },
     });
   });
 
@@ -81,7 +111,7 @@ export function dashboardRoutes(db: Db, payments: PaymentService, ai: AiClient |
     });
   });
 
-  router.post("/api/demo/run", (_req, res) => {
+  router.post("/api/demo/run", guard, (_req, res) => {
     if (!demo.status().available) {
       res.status(503).json({ error: "The demo agent needs an AI key and DEMO_VENDOR_EMAILS." });
       return;
@@ -93,9 +123,17 @@ export function dashboardRoutes(db: Db, payments: PaymentService, ai: AiClient |
     res.status(202).json({ started: true });
   });
 
+  router.post("/api/demo/reset", guard, (_req, res) => {
+    if (!demo.reset()) {
+      res.status(409).json({ error: "Wait for the demo agent to finish, then try again." });
+      return;
+    }
+    res.json({ reset: true });
+  });
+
   // Only returns a draft for the human to review. Saving stays a separate step.
-  router.post("/api/agents/:id/policy/draft", async (req, res) => {
-    const agent = getAgent(db, req.params.id);
+  router.post("/api/agents/:id/policy/draft", guard, async (req, res) => {
+    const agent = getAgent(db, req.params.id as string);
     const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
     if (!agent || !text || text.length > 2000) {
       res.status(400).json({ error: "Describe the rules in under 2,000 characters." });
@@ -113,8 +151,8 @@ export function dashboardRoutes(db: Db, payments: PaymentService, ai: AiClient |
     }
   });
 
-  router.put("/api/agents/:id/policy", (req, res) => {
-    const agent = getAgent(db, req.params.id);
+  router.put("/api/agents/:id/policy", guard, (req, res) => {
+    const agent = getAgent(db, req.params.id as string);
     if (!agent) {
       res.status(404).json({ error: "No such agent." });
       return;
@@ -137,12 +175,13 @@ export function dashboardRoutes(db: Db, payments: PaymentService, ai: AiClient |
   return router;
 }
 
-export function approvalRoutes(payments: PaymentService): Router {
+export function approvalRoutes(payments: PaymentService, auth: DashboardAuth): Router {
   const router = Router();
+  const guard = requirePassword(auth.password);
 
   for (const [action, approved] of [["approve", true], ["reject", false]] as const) {
-    router.post(`/api/approvals/:id/${action}`, (req, res) => {
-      const result = payments.resolveApproval(req.params.id, approved);
+    router.post(`/api/approvals/:id/${action}`, guard, (req, res) => {
+      const result = payments.resolveApproval(req.params.id as string, approved);
       if (!result) {
         res.status(409).json({ error: "This payment is not waiting for approval." });
         return;

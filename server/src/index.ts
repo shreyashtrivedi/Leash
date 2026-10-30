@@ -4,12 +4,12 @@ import express from "express";
 import { createAiClient } from "./ai/client.js";
 import { createExplainer } from "./ai/explain.js";
 import { config } from "./config.js";
-import { addAuditEvent, auditBus, openDb } from "./db.js";
+import { addAuditEvent, auditBus, openDb, saveAgentPolicy } from "./db.js";
 import { createDemoRunner, runDemoAgent } from "./demo/agent.js";
 import { createPaymentService } from "./payments.js";
 import { createPayPalClient } from "./paypal.js";
 import { approvalRoutes, dashboardRoutes, mcpRoutes } from "./routes.js";
-import { DEMO_AGENT_ID, seed } from "./seed.js";
+import { DEMO_AGENT_ID, demoPolicy, seed, SUPPORT_AGENT_ID, supportPolicy } from "./seed.js";
 
 const db = openDb(config.dbPath);
 seed(db);
@@ -25,6 +25,7 @@ const noteFromAgent = (type: string, summary: string) =>
 const demo = createDemoRunner(
   ai && config.demoVendorEmails.length > 0
     ? async () => {
+        payments.startFresh(DEMO_AGENT_ID, "Demo run started with a clean spending slate");
         const report = await runDemoAgent({
           ai,
           mcpUrl: `http://localhost:${config.port}/mcp`,
@@ -37,13 +38,23 @@ const demo = createDemoRunner(
       }
     : null,
   () => auditBus.emit("event"),
+  () => {
+    saveAgentPolicy(db, DEMO_AGENT_ID, demoPolicy);
+    saveAgentPolicy(db, SUPPORT_AGENT_ID, supportPolicy);
+    payments.startFresh(DEMO_AGENT_ID, "Demo reset: rules restored, and spending cleared");
+  },
 );
+
+const auth = { password: config.dashboardPassword, hint: config.dashboardPasswordHint };
+if (!auth.password) console.warn("DASHBOARD_PASSWORD is not set, so anyone who can reach this server can approve payments.");
+
+setInterval(() => payments.expireApprovals(), 30_000).unref();
 
 const app = express();
 app.use(express.json());
 app.use(mcpRoutes(db, payments));
-app.use(dashboardRoutes(db, payments, ai, demo));
-app.use(approvalRoutes(payments));
+app.use(dashboardRoutes(db, payments, ai, demo, auth));
+app.use(approvalRoutes(payments, auth));
 
 const clientDist = fileURLToPath(new URL("../../client/dist", import.meta.url));
 if (existsSync(clientDist)) {

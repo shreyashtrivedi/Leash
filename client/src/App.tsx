@@ -1,8 +1,9 @@
-import { lazy, Suspense, useState } from "react";
-import { useLeashState } from "./api";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { setPasswordPrompt, useLeashState } from "./api";
 import type { Agent, Connection } from "./api";
 import { ApprovalCard } from "./components/ApprovalCard";
 import { DemoPanel } from "./components/DemoPanel";
+import { PasswordDialog } from "./components/PasswordDialog";
 import { PolicyEditor } from "./components/PolicyEditor";
 import { Meter, SpendPanel } from "./components/SpendPanel";
 import { Timeline } from "./components/Timeline";
@@ -75,6 +76,20 @@ export function App() {
   const { state, connection, refresh } = useLeashState();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [view, setView] = useState<View>("overview");
+  const [passwordRequest, setPasswordRequest] = useState<{
+    wrong: boolean;
+    resolve: (password: string | null) => void;
+  } | null>(null);
+
+  useEffect(() => {
+    setPasswordPrompt((wrong) => new Promise((resolve) => setPasswordRequest({ wrong, resolve })));
+    return () => setPasswordPrompt(null);
+  }, []);
+
+  function answerPassword(password: string | null) {
+    passwordRequest?.resolve(password);
+    setPasswordRequest(null);
+  }
 
   if (!state) {
     return (
@@ -133,7 +148,7 @@ export function App() {
                     ))}
                   </section>
                 )}
-                <DemoPanel demo={state.demo} />
+                <DemoPanel demo={state.demo} waiting={state.approvals.length > 0} />
                 <section className="panel">
                   <h2>Live timeline · {agent.name}</h2>
                   <Timeline events={agentEvents.slice(0, TIMELINE_LIMIT)} />
@@ -157,6 +172,15 @@ export function App() {
           {view === "policy" && <PolicyEditor agent={agent} aiEnabled={state.aiEnabled} onSaved={refresh} />}
         </main>
       </div>
+
+      {passwordRequest && (
+        <PasswordDialog
+          wrong={passwordRequest.wrong}
+          hint={state.auth.hint}
+          onSubmit={answerPassword}
+          onCancel={() => answerPassword(null)}
+        />
+      )}
     </div>
   );
 }

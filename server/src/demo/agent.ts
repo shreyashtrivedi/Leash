@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { AiClient } from "../ai/client.js";
 
 const MAX_STEPS = 14;
-const RUN_LIMIT_MS = 5 * 60_000;
+const RUN_LIMIT_MS = 3 * 60_000;
 const POLL_MS = 3000;
 const TOOL_TIMEOUT_MS = 90_000;
 const AI_ATTEMPTS = 4;
@@ -177,11 +177,22 @@ export interface DemoStatus {
 }
 
 // Only one run at a time, because each run spends real AI quota and sandbox balance.
-export function createDemoRunner(run: (() => Promise<string>) | null, onChange: () => void) {
+export function createDemoRunner(
+  run: (() => Promise<string>) | null,
+  onChange: () => void,
+  restore: () => void = () => {},
+) {
   const status: DemoStatus = { available: run !== null, running: false, report: null, error: null };
 
   return {
     status: () => status,
+    reset(): boolean {
+      if (!run || status.running) return false;
+      restore();
+      Object.assign(status, { report: null, error: null });
+      onChange();
+      return true;
+    },
     start(): boolean {
       if (!run || status.running) return false;
       Object.assign(status, { running: true, report: null, error: null });

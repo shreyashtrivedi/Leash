@@ -102,12 +102,15 @@ React dashboard   timeline, approval cards, policy editor, spend summary
 | A `processing` result from `pay` | Payouts are asynchronous. If polling times out, Leash must not claim success, so it returns `processing`, and `check_approval` reports the final state. May be dropped if Stage 1 shows payouts always finish quickly. |
 | Optional `idempotency_key` on `pay` | An LLM agent that retries after a timeout must not pay twice. |
 | Recipient registry | Required for "verified vendors", as explained above. |
+| Per-recipient limit over 24 hours | Without it, an agent can split one large payment into small ones that stay under every per-payment limit. |
+| Approval expiry and demo reset | The hosted demo is shared, so an abandoned approval or edited policy must not break it for the next judge. |
+| Optional dashboard password | With it set, an agent that can reach the dashboard still can't approve its own payment. |
 | "Run demo agent" button on the dashboard | Judges can see the whole scenario on the hosted URL with no setup. One run at a time, to limit AI and sandbox use. |
 
 ### Known limits, stated in the README
 
 - `create_invoice` uses the policy's cap, recipient, currency and velocity rules, but invoices consume no budget because they request money rather than spend it.
-- The dashboard has no login, as the brief has no accounts. A real deployment must protect it, since anyone reaching it could approve payments. The hosted demo is open so judges can try it, and it's sandbox only.
+- The dashboard has one shared password rather than accounts, as the brief has no accounts. The hosted demo's password is public so judges can try it, and it's sandbox only.
 - Boot-time sample history is visibly marked **Sample** and carries no PayPal IDs. Every row shown as executed without that mark has a real sandbox transaction.
 
 ## 3. Folder structure
@@ -170,4 +173,4 @@ Each stage ends with a quick check-in.
 
 ## 6. Out of scope
 
-Production PayPal, dashboard login and accounts, multi-recipient batches, a second AI provider, and anything else not in the brief.
+Production PayPal, user accounts, multi-recipient batches, a second AI provider, and anything else not in the brief.

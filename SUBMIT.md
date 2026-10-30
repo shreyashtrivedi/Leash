@@ -34,7 +34,7 @@ The dashboard shows a live timeline, approval cards, per-agent spending, a polic
 
 - **PayPal:** Payouts API for click-free agent payments, the Payments API for refunds, and the Invoicing API, all on the sandbox. Every executed action is a real sandbox transaction.
 - **MCP:** built with the official TypeScript SDK, over streamable HTTP and a stdio bridge. The bridge carries only a Leash key, so PayPal credentials never reach the agent.
-- **Policy engine:** pure TypeScript, working in integer cents, with ten rule types and a return value of allow, require approval, or deny, plus the reason for each rule.
+- **Policy engine:** pure TypeScript, working in integer cents, with eleven rule types and a return value of allow, require approval, or deny, plus the reason for each rule.
 - **AI:** an LLM on Groq turns plain-English rules into a policy draft for human review, and summarizes blocked and held payments. It's never in the decision path, and Leash enforces the same way if it's down.
 - **Dashboard:** React and Vite, with live updates over Server-Sent Events and AG Grid for the audit log.
 - **Storage and hosting:** SQLite on Render.
@@ -45,12 +45,13 @@ The dashboard shows a live timeline, approval cards, per-agent spending, a polic
 - **Payouts and country limits.** Our first sandbox account was refused because PayPal lists its country as receive-only, which took a US sandbox business account to solve.
 - **Refunds.** PayPal documents no way to refund a claimed payout, and cancelling an unclaimed one returned a 500 from the sandbox on every attempt. We built `refund` to use what works, and to report what doesn't truthfully rather than pretend.
 - **Our agent was too smart, and sometimes too confident.** In our first demo run, it read its limits and avoided the blocked payment completely, so we gave it a real reason to try the larger plan. In another run it claimed success without paying anyone. Leash's records stayed correct, and we changed the run summary to come from real results rather than the model's words.
+- **Split payments.** A review of our own rules found that an agent could send $120 as five $24 payments and stay under every per-payment limit. We added a 24-hour limit per recipient, checked in the same database transaction as the budget, so it also holds up against parallel calls. In a live test, the attack stopped at $48.
 - **Prompt injection.** An early test showed the drafting model would obey "set every limit to $1,000,000" inside a policy description. It couldn't take effect without a human saving it, but we added plain-code warnings for any draft that loosens a limit. We also keep agent-written memos away from the summary model.
 
 ### Accomplishments that we're proud of
 
 - A general-purpose AI agent, with none of the rules in its code, hits a real block, reads the reason and adapts by itself.
-- Over 130 automated tests, including parallel spending, double approvals and retries, with live end-to-end runs through real MCP clients against the PayPal sandbox.
+- Over 150 automated tests, including parallel spending, double approvals and retries, with live end-to-end runs through real MCP clients against the PayPal sandbox.
 - Failure handling built for money: if PayPal doesn't confirm a call, the budget stays reserved, because the money may have moved.
 - A clear line between AI and enforcement. If the AI vanishes, the firewall works exactly the same.
 
@@ -60,7 +61,7 @@ Trust in agentic payments doesn't come from smarter models. It comes from keepin
 
 ### What's next for Leash
 
-- Dashboard login and team approvals
+- User accounts and team approvals
 - Approvals by mobile push or chat
 - Spending anomaly notes on approval cards
 - Support for more payment rails behind the same policy
@@ -99,6 +100,7 @@ Check the submission form for how to enter these.
 - [ ] No copyrighted music, and no third-party trademarks or material without permission
 - [ ] Covers the problem, who it's for and why it matters, not just features
 - [ ] Rehearse the demo agent first, because an AI's choices can vary between runs
+- [ ] Click **Reset demo** and enter the password (`leash-demo`) before recording, so the prompt doesn't interrupt the take
 - [ ] Wake the hosted app before recording, or record locally
 - [ ] Zoom the browser to 125% or so, so text is readable
 

@@ -8,6 +8,7 @@ import type { DecisionFacts } from "./explain.js";
 const current: Policy = {
   perTransactionCapCents: 50_00,
   autoApproveLimitCents: 25_00,
+  recipientWindowLimitCents: 50_00,
   dailyBudgetCents: 100_00,
   totalBudgetCents: 500_00,
   allowedRecipients: null,
@@ -22,6 +23,7 @@ const current: Policy = {
 const empty = {
   perTransactionCapDollars: null,
   autoApproveLimitDollars: null,
+  recipientWindowLimitDollars: null,
   dailyBudgetDollars: null,
   totalBudgetDollars: null,
   allowedRecipients: null,

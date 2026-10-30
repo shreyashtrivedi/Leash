@@ -142,6 +142,25 @@ describe("demo runner", () => {
     expect(demo.status().error).toContain("could not finish");
   });
 
+  it("resets between runs, but not during one", async () => {
+    let restored = 0;
+    let finish = (_report: string) => {};
+    const demo = createDemoRunner(
+      () => new Promise<string>((resolve) => (finish = resolve)),
+      () => {},
+      () => restored++,
+    );
+    demo.start();
+    expect(demo.reset()).toBe(false);
+    expect(restored).toBe(0);
+
+    finish("Done.");
+    await flush();
+    expect(demo.reset()).toBe(true);
+    expect(restored).toBe(1);
+    expect(demo.status().report).toBeNull();
+  });
+
   it("is unavailable without an AI key", () => {
     const demo = createDemoRunner(null, () => {});
     expect(demo.status().available).toBe(false);

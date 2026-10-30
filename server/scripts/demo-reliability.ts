@@ -4,17 +4,18 @@
 const BASE = process.env.LEASH_BASE ?? "http://localhost:3000";
 const runs = Number(process.argv[2] ?? 3);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const headers = { "X-Leash-Password": process.env.DASHBOARD_PASSWORD ?? "" };
 const getState = async (): Promise<any> => (await fetch(`${BASE}/api/state`)).json();
 
 let passed = 0;
 for (let run = 1; run <= runs; run++) {
   const startId = Math.max(0, ...(await getState()).events.map((event: any) => event.id));
   const started = Date.now();
-  await fetch(`${BASE}/api/demo/run`, { method: "POST" });
+  await fetch(`${BASE}/api/demo/run`, { method: "POST", headers });
 
   let state = await getState();
   while (state.demo.running && Date.now() - started < 300_000) {
-    for (const approval of state.approvals) await fetch(`${BASE}/api/approvals/${approval.id}/approve`, { method: "POST" });
+    for (const approval of state.approvals) await fetch(`${BASE}/api/approvals/${approval.id}/approve`, { method: "POST", headers });
     await sleep(2000);
     state = await getState();
   }

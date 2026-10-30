@@ -21,6 +21,8 @@ export const config = {
   aiProvider: process.env.AI_PROVIDER || "groq",
   aiApiKey: process.env.AI_API_KEY ?? "",
   aiModel: process.env.AI_MODEL ?? "",
+  dashboardPassword: process.env.DASHBOARD_PASSWORD ?? "",
+  dashboardPasswordHint: process.env.DASHBOARD_PASSWORD_HINT ?? "",
   port: Number(process.env.PORT ?? 3000),
   dbPath: process.env.LEASH_DB ?? fileURLToPath(new URL("../leash.db", import.meta.url)),
   demoAgentKey: process.env.LEASH_DEMO_AGENT_KEY ?? "leash-demo-key",

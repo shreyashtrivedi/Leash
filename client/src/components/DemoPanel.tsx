@@ -1,16 +1,16 @@
 import { useState } from "react";
-import { startDemo } from "../api";
+import { resetDemo, startDemo } from "../api";
 import type { DemoStatus } from "../api";
 
-export function DemoPanel({ demo }: { demo: DemoStatus }) {
+export function DemoPanel({ demo, waiting }: { demo: DemoStatus; waiting: boolean }) {
   const [error, setError] = useState<string | null>(null);
 
   if (!demo.available) return null;
 
-  async function start() {
+  async function perform(action: () => Promise<unknown>) {
     setError(null);
     try {
-      await startDemo();
+      await action();
     } catch (err) {
       setError((err as Error).message);
     }
@@ -26,13 +26,23 @@ export function DemoPanel({ demo }: { demo: DemoStatus }) {
             none of the rules are in its code. Leash decides each payment for real in the sandbox, and one will wait for you here.
           </p>
         </div>
-        <button className="button primary" disabled={demo.running} onClick={start}>
-          {demo.running ? "Agent running" : "Run demo agent"}
-        </button>
+        <div className="demo-actions">
+          <button className="button primary" disabled={demo.running} onClick={() => perform(startDemo)}>
+            {demo.running ? "Agent running" : "Run demo agent"}
+          </button>
+          <button
+            className="button"
+            disabled={demo.running}
+            title="Restores the original rules and clears spending. The audit log keeps everything."
+            onClick={() => perform(resetDemo)}
+          >
+            Reset demo
+          </button>
+        </div>
       </div>
       {demo.running && (
         <p className="demo-status" role="status">
-          <i /> The agent is working. Each PayPal payment takes about 20 seconds.
+          <i /> {waiting ? "The agent is waiting. Approve or reject the payment above." : "The agent is working. Each PayPal payment takes about 20 seconds."}
         </p>
       )}
       {demo.report && !demo.running && (

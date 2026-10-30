@@ -6,6 +6,7 @@ import type { Agent, Policy, PolicyDraft } from "../api";
 interface FormValues {
   perTransactionCap: string;
   autoApproveLimit: string;
+  recipientWindowLimit: string;
   dailyBudget: string;
   totalBudget: string;
   maxPaymentsPerHour: string;
@@ -31,6 +32,7 @@ function toForm(policy: Policy): FormValues {
   return {
     perTransactionCap: toDollars(policy.perTransactionCapCents),
     autoApproveLimit: toDollars(policy.autoApproveLimitCents),
+    recipientWindowLimit: toDollars(policy.recipientWindowLimitCents),
     dailyBudget: toDollars(policy.dailyBudgetCents),
     totalBudget: toDollars(policy.totalBudgetCents),
     maxPaymentsPerHour: String(policy.maxPaymentsPerHour),
@@ -47,6 +49,7 @@ function toPolicy(form: FormValues): Policy {
   return {
     perTransactionCapCents: toCents(form.perTransactionCap),
     autoApproveLimitCents: toCents(form.autoApproveLimit),
+    recipientWindowLimitCents: toCents(form.recipientWindowLimit),
     dailyBudgetCents: toCents(form.dailyBudget),
     totalBudgetCents: toCents(form.totalBudget),
     maxPaymentsPerHour: Number(form.maxPaymentsPerHour),
@@ -62,6 +65,7 @@ function toPolicy(form: FormValues): Policy {
 const MONEY_FIELDS: [keyof FormValues, string, string][] = [
   ["autoApproveLimit", "Auto-approve limit", "Pays by itself up to this amount. Above it, you decide."],
   ["perTransactionCap", "Per-payment cap", "Anything above this is blocked outright."],
+  ["recipientWindowLimit", "Per-recipient limit", "The most one recipient can get in 24 hours without asking you. Stops split payments."],
   ["dailyBudget", "Daily budget", "Resets at midnight UTC."],
   ["totalBudget", "Total budget", "Lifetime limit for this agent."],
 ];

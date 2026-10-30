@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Agent, Db } from "./db.js";
-import { getAgent, openDb, saveAgent, saveRecipient, verifyAuditChain } from "./db.js";
+import { getAgent, openDb, saveAgent, saveAgentPolicy, saveRecipient, verifyAuditChain } from "./db.js";
 import { createPaymentService } from "./payments.js";
 import type { PaymentService } from "./payments.js";
 import { PayPalError } from "./paypal.js";
@@ -12,6 +12,7 @@ const VENDOR = "vendor@example.com";
 const policy: Policy = {
   perTransactionCapCents: 50_00,
   autoApproveLimitCents: 25_00,
+  recipientWindowLimitCents: 1000_00,
   dailyBudgetCents: 50_00,
   totalBudgetCents: 500_00,
   allowedRecipients: null,
@@ -312,6 +313,123 @@ describe("payment service", () => {
     });
     await payments.pay(agent, pay("10.00"));
     expect(calls).toBe(0);
+  });
+
+  describe("split payments", () => {
+    const limited = () => {
+      saveAgentPolicy(db, "a1", { ...policy, dailyBudgetCents: 500_00, recipientWindowLimitCents: 50_00 });
+      return getAgent(db, "a1")!;
+    };
+
+    it("holds the payment that takes a recipient past the limit", async () => {
+      const strict = limited();
+      const { client, payouts } = fakePayPal();
+      const payments = service(client);
+      const results = [];
+      for (let i = 0; i < 5; i++) results.push((await payments.pay(strict, pay("24.00"))).status);
+      expect(results).toEqual(["executed", "executed", "pending_approval", "pending_approval", "pending_approval"]);
+      expect(payouts).toHaveLength(2);
+    });
+
+    it("catches a split sent in parallel", async () => {
+      const strict = limited();
+      const { client, payouts } = fakePayPal();
+      const payments = service(client);
+      const results = await Promise.all([1, 2, 3, 4, 5].map(() => payments.pay(strict, pay("24.00"))));
+      expect(results.filter((r) => r.status === "pending_approval")).toHaveLength(3);
+      expect(payouts).toHaveLength(2);
+    });
+
+    it("tracks each recipient separately", async () => {
+      const strict = limited();
+      saveRecipient(db, "other@example.com", "Other", { verified: true, category: "software" });
+      const payments = service(fakePayPal().client);
+      await payments.pay(strict, pay("24.00"));
+      await payments.pay(strict, pay("24.00"));
+      const other = await payments.pay(strict, pay("24.00", { recipient: "OTHER@example.com" }));
+      expect(other.status).toBe("executed");
+    });
+
+    it("cannot be dodged with capitals or spaces", async () => {
+      const strict = limited();
+      const payments = service(fakePayPal().client);
+      await payments.pay(strict, pay("24.00"));
+      await payments.pay(strict, pay("24.00", { recipient: " VENDOR@Example.com " }));
+      const third = await payments.pay(strict, pay("24.00", { recipient: "Vendor@example.COM" }));
+      expect(third.status).toBe("pending_approval");
+    });
+
+    it("lets a human approve past the limit", async () => {
+      const strict = limited();
+      const { client, payouts } = fakePayPal();
+      const payments = service(client);
+      await payments.pay(strict, pay("24.00"));
+      await payments.pay(strict, pay("24.00"));
+      const held = await payments.pay(strict, pay("24.00"));
+      payments.resolveApproval(held.payment_id as string, true);
+      await waitForPayouts(payouts, 3);
+      expect(payouts).toHaveLength(3);
+    });
+
+    it("keeps a blocked payment's reason free of approval rules", async () => {
+      const strict = limited();
+      const payments = service(fakePayPal().client);
+      await payments.pay(strict, pay("24.00"));
+      await payments.pay(strict, pay("24.00"));
+      const blocked = await payments.pay(strict, pay("60.00"));
+      expect(blocked.status).toBe("blocked");
+      expect(blocked.reason).not.toContain("per-recipient");
+    });
+  });
+
+  describe("approval expiry", () => {
+    it("expires an unanswered approval and never sends it", async () => {
+      const { client, payouts } = fakePayPal();
+      const payments = createPaymentService(db, client, { pollMs: 1, approvalTtlMs: 5 });
+      const held = await payments.pay(agent, pay("30.00"));
+      await new Promise((r) => setTimeout(r, 15));
+
+      expect(payments.resolveApproval(held.payment_id as string, true)).toBeNull();
+      expect(await payments.check(agent, held.payment_id as string)).toMatchObject({ status: "expired" });
+      expect(payouts).toHaveLength(0);
+      const types = db.prepare("SELECT type FROM audit_events").pluck().all();
+      expect(types).toContain("approval.expired");
+    });
+
+    it("leaves fresh approvals alone", async () => {
+      const payments = service(fakePayPal().client);
+      const held = await payments.pay(agent, pay("30.00"));
+      payments.expireApprovals();
+      expect(await payments.check(agent, held.payment_id as string)).toMatchObject({ status: "pending_approval" });
+    });
+  });
+
+  describe("starting fresh", () => {
+    it("clears spend and waiting approvals, and keeps the audit history", async () => {
+      const { client, payouts } = fakePayPal();
+      const payments = service(client);
+      await payments.pay(agent, pay("25.00"));
+      await payments.pay(agent, pay("25.00"));
+      const held = await payments.pay(agent, pay("30.00"));
+      const eventsBefore = verifyAuditChain(db).events;
+
+      payments.startFresh("a1", "Demo reset");
+
+      expect(payments.spendSummary(agent).spentTodayCents).toBe(0);
+      expect(payments.spendSummary(agent).paymentsLastHour).toBe(0);
+      expect(payments.resolveApproval(held.payment_id as string, true)).toBeNull();
+      expect(payouts).toHaveLength(2);
+      expect((await payments.pay(agent, pay("25.00"))).status).toBe("executed");
+      expect(verifyAuditChain(db).events).toBeGreaterThan(eventsBefore);
+      expect(verifyAuditChain(db).intact).toBe(true);
+    });
+
+    it("leaves other agents untouched", async () => {
+      const payments = service(fakePayPal().client);
+      await payments.pay(getAgent(db, "a2")!, pay("25.00"));
+      payments.startFresh("a1", "Demo reset");
+      expect(payments.spendSummary(getAgent(db, "a2")!).spentTodayCents).toBe(25_00);
+    });
   });
 
   describe("refunds", () => {

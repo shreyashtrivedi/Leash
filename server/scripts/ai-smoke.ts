@@ -11,6 +11,7 @@ if (!ai) throw new Error("AI_API_KEY is not set.");
 const current: Policy = {
   perTransactionCapCents: 50_00,
   autoApproveLimitCents: 25_00,
+  recipientWindowLimitCents: 50_00,
   dailyBudgetCents: 100_00,
   totalBudgetCents: 500_00,
   allowedRecipients: null,

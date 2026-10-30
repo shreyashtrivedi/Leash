@@ -4,7 +4,7 @@ import type { Agent, Db, PaymentRow } from "./db.js";
 import { addAuditEvent, auditBus, getAgent, getRecipient, parseRuleResults } from "./db.js";
 import { PayPalError } from "./paypal.js";
 import type { PayPalClient } from "./paypal.js";
-import { evaluate } from "./policy/engine.js";
+import { APPROVAL_RULES, evaluate } from "./policy/engine.js";
 import { parseMinorUnits } from "./policy/money.js";
 import type { Evaluation, PaymentKind, PaymentRequest, SpendContext } from "./policy/types.js";
 
@@ -21,6 +21,7 @@ interface SubmitInput extends PayInput {
 export type PaymentResult = Record<string, unknown> & { status: string };
 
 const MAX_CREATE_ATTEMPTS = 3;
+const APPROVAL_TTL_MS = 10 * 60_000;
 const SUCCEEDED = new Set(["SUCCESS", "UNCLAIMED"]);
 const FAILED = new Set(["FAILED", "RETURNED", "BLOCKED", "REFUNDED", "REVERSED"]);
 const NOUNS: Record<PaymentKind, string> = { payment: "payment", refund: "refund", invoice: "invoice" };
@@ -70,7 +71,7 @@ export function toResult(row: PaymentRow): PaymentResult {
   switch (row.status) {
     case "blocked": {
       // Approval can't help a blocked payment, so the auto-approve limit would only mislead.
-      const blockers = failures.filter((failure) => failure.rule !== "auto_approve_limit");
+      const blockers = failures.filter((failure) => !APPROVAL_RULES.includes(failure.rule));
       return {
         ...base,
         status: "blocked",
@@ -97,6 +98,8 @@ export function toResult(row: PaymentRow): PaymentResult {
       };
     case "executed":
       return { ...base, status: "executed", paypal_status: row.paypal_status, ...executedResult(row) };
+    case "expired":
+      return { ...base, status: "expired", reason: `Nobody decided on this ${noun} in time, so it was not sent.` };
     case "refunded":
       return { ...base, status: "refunded", reason: "This payment was cancelled and the funds were returned." };
     case "failed":
@@ -107,10 +110,11 @@ export function toResult(row: PaymentRow): PaymentResult {
 export function createPaymentService(
   db: Db,
   paypal: PayPalClient,
-  options: { pollMs?: number; pollTimeoutMs?: number; explain?: Explainer | null } = {},
+  options: { pollMs?: number; pollTimeoutMs?: number; approvalTtlMs?: number; explain?: Explainer | null } = {},
 ) {
   const pollMs = options.pollMs ?? 1000;
   const pollTimeoutMs = options.pollTimeoutMs ?? 45_000;
+  const approvalTtlMs = options.approvalTtlMs ?? APPROVAL_TTL_MS;
 
   const getRow = (id: string) =>
     db.prepare("SELECT * FROM payments WHERE id = ?").get(id) as PaymentRow | undefined;
@@ -129,21 +133,30 @@ export function createPaymentService(
     const now = new Date();
     const dayStart = `${now.toISOString().slice(0, 10)}T00:00:00.000Z`;
     const hourAgo = new Date(now.getTime() - 3_600_000).toISOString();
+    const dayAgo = new Date(now.getTime() - 86_400_000).toISOString();
     const spent = db
       .prepare(
         `SELECT
            COALESCE(SUM(CASE WHEN kind <> 'invoice' AND reserved_at >= @dayStart THEN amount_usd_cents END), 0) AS today,
            COALESCE(SUM(CASE WHEN kind <> 'invoice' THEN amount_usd_cents END), 0) AS total,
-           COUNT(CASE WHEN reserved_at >= @hourAgo THEN 1 END) AS lastHour
+           COUNT(CASE WHEN reserved_at >= @hourAgo THEN 1 END) AS lastHour,
+           COALESCE(SUM(CASE WHEN kind = 'payment' AND recipient = @recipient AND reserved_at >= @dayAgo
+             THEN amount_usd_cents END), 0) AS recipientRecent
          FROM payments
-         WHERE agent_id = @agentId AND status IN ('sending', 'executed')`,
+         WHERE agent_id = @agentId AND archived = 0 AND status IN ('sending', 'executed')`,
       )
-      .get({ agentId, dayStart, hourAgo }) as { today: number; total: number; lastHour: number };
+      .get({ agentId, recipient, dayStart, hourAgo, dayAgo }) as {
+      today: number;
+      total: number;
+      lastHour: number;
+      recipientRecent: number;
+    };
 
     return {
       spentTodayCents: spent.today,
       spentTotalCents: spent.total,
       paymentsLastHour: spent.lastHour,
+      recipientRecentCents: spent.recipientRecent,
       recipientRecord: getRecipient(db, recipient),
       approvedByHuman,
     };
@@ -198,7 +211,7 @@ export function createPaymentService(
   function auditDecision(row: PaymentRow, evaluation: Evaluation) {
     const failures = evaluation.results
       .filter((result) => !result.passed)
-      .filter((result) => evaluation.decision !== "DENY" || result.rule !== "auto_approve_limit")
+      .filter((result) => evaluation.decision !== "DENY" || !APPROVAL_RULES.includes(result.rule))
       .map((result) => result.reason);
     audit(
       row,
@@ -238,7 +251,7 @@ export function createPaymentService(
 
     const context = spendContext(row.agent_id, row.recipient, false);
     const reasons = failedRules(row)
-      .filter((failure) => row.status === "pending_approval" || failure.rule !== "auto_approve_limit")
+      .filter((failure) => row.status === "pending_approval" || !APPROVAL_RULES.includes(failure.rule))
       .map((failure) => failure.reason);
 
     options
@@ -335,6 +348,22 @@ export function createPaymentService(
       await sendPayout(row, value);
     }
   }
+
+  function expireRow(row: PaymentRow) {
+    setFields(row.id, { status: "expired" });
+    audit(row, "approval.expired", `Nobody decided in time, so it was not sent: ${describe(row)}`);
+  }
+
+  // An unanswered approval must never quietly pay later, when nobody remembers why.
+  const expireApprovals = db
+    .transaction(() => {
+      const cutoff = new Date(Date.now() - approvalTtlMs).toISOString();
+      const stale = db
+        .prepare("SELECT * FROM payments WHERE status = 'pending_approval' AND created_at <= ?")
+        .all(cutoff) as PaymentRow[];
+      stale.forEach(expireRow);
+    })
+    .immediate;
 
   // Approval re-runs the whole policy, because budgets or the policy may have changed.
   const resolveInTransaction = db
@@ -442,12 +471,28 @@ export function createPaymentService(
     async check(agent: Agent, id: string): Promise<PaymentResult | null> {
       const row = getRow(id);
       if (row?.agent_id !== agent.id) return null;
+      expireApprovals();
       await refresh(id).catch(() => undefined);
       return toResult(getRow(id)!);
     },
 
+    expireApprovals,
+
+    // Gives the demo a clean slate. Payments leave the budget counts, but stay in the audit log.
+    startFresh: db
+      .transaction((agentId: string, summary: string) => {
+        const waiting = db
+          .prepare("SELECT * FROM payments WHERE agent_id = ? AND status = 'pending_approval'")
+          .all(agentId) as PaymentRow[];
+        waiting.forEach(expireRow);
+        db.prepare("UPDATE payments SET archived = 1 WHERE agent_id = ?").run(agentId);
+        addAuditEvent(db, { agentId, paymentId: null, type: "demo.reset", summary });
+      })
+      .immediate,
+
     // Returns null when the payment is not waiting for a decision, so a second click does nothing.
     resolveApproval(id: string, approved: boolean): PaymentResult | null {
+      expireApprovals();
       const resolved = resolveInTransaction(id, approved);
       if (!resolved) return null;
       if (resolved.send) {

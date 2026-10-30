@@ -13,9 +13,12 @@ import type {
 // An invoice requests money, so budgets don't apply and customers need no vendor check.
 const SKIPPED_RULES: Record<PaymentKind, RuleId[]> = {
   payment: [],
-  refund: ["allowed_recipient", "verified_recipient", "allowed_category"],
-  invoice: ["daily_budget", "total_budget", "verified_recipient"],
+  refund: ["allowed_recipient", "verified_recipient", "allowed_category", "recipient_window"],
+  invoice: ["daily_budget", "total_budget", "verified_recipient", "recipient_window"],
 };
+
+// Failing only these sends a payment to a human. Failing anything else blocks it.
+export const APPROVAL_RULES: RuleId[] = ["auto_approve_limit", "recipient_window"];
 
 const rule = (id: RuleId, passed: boolean, reason: string): RuleResult => ({ rule: id, passed, reason });
 
@@ -92,6 +95,22 @@ function checkBudget(id: RuleId, label: string, amount: number, spent: number, b
   );
 }
 
+// Stops an agent splitting one large payment into small ones that each look harmless.
+function checkRecipientWindow(policy: Policy, amount: number, context: SpendContext): RuleResult {
+  const limit = policy.recipientWindowLimitCents;
+  const total = context.recipientRecentCents + amount;
+  const underLimit = total <= limit;
+  return rule(
+    "recipient_window",
+    underLimit || context.approvedByHuman,
+    context.approvedByHuman
+      ? "approved by a human"
+      : underLimit
+        ? `${formatUsd(total)} of the ${formatUsd(limit)} per-recipient limit used in 24 hours`
+        : `this would bring the recipient's 24-hour total to ${formatUsd(total)}, above the ${formatUsd(limit)} per-recipient limit`,
+  );
+}
+
 function checkAmountRules(policy: Policy, amount: number, context: SpendContext): RuleResult[] {
   const cap = policy.perTransactionCapCents;
   const limit = policy.autoApproveLimitCents;
@@ -117,6 +136,7 @@ function checkAmountRules(policy: Policy, amount: number, context: SpendContext)
           ? `amount ${formatUsd(amount)} is within the auto-approve limit ${formatUsd(limit)}`
           : `amount ${formatUsd(amount)} is above the auto-approve limit ${formatUsd(limit)}`,
     ),
+    checkRecipientWindow(policy, amount, context),
   ];
 }
 
@@ -157,7 +177,7 @@ export function evaluate(
   const decision =
     failed.length === 0
       ? "ALLOW"
-      : failed.every((result) => result.rule === "auto_approve_limit")
+      : failed.every((result) => APPROVAL_RULES.includes(result.rule))
         ? "REQUIRE_APPROVAL"
         : "DENY";
 

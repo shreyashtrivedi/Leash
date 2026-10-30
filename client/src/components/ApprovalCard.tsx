@@ -13,7 +13,7 @@ const ACTIONS = {
 export function ApprovalCard({ approval, agentName }: { approval: Approval; agentName: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const trigger = approval.rule_results.find((result) => !result.passed);
+  const triggers = approval.rule_results.filter((result) => !result.passed);
   const action = ACTIONS[approval.kind];
 
   async function decide(action: "approve" | "reject") {
@@ -57,9 +57,9 @@ export function ApprovalCard({ approval, agentName }: { approval: Approval; agen
         </div>
       </div>
 
-      {trigger && (
+      {triggers.length > 0 && (
         <p className="approval-why">
-          <strong>Why it stopped:</strong> {trigger.reason}
+          <strong>Why it stopped:</strong> {triggers.map((result) => result.reason).join("; ")}
         </p>
       )}
 

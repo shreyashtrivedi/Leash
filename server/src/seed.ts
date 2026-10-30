@@ -5,11 +5,12 @@ import { addAuditEvent, saveAgent, saveRecipient } from "./db.js";
 import { policySchema } from "./policy/types.js";
 
 export const DEMO_AGENT_ID = "research-agent";
-const SUPPORT_AGENT_ID = "support-agent";
+export const SUPPORT_AGENT_ID = "support-agent";
 
-const demoPolicy = policySchema.parse({
+export const demoPolicy = policySchema.parse({
   perTransactionCapCents: 50_00,
   autoApproveLimitCents: 25_00,
+  recipientWindowLimitCents: 50_00,
   dailyBudgetCents: 500_00,
   totalBudgetCents: 5000_00,
   allowedRecipients: null,
@@ -21,10 +22,11 @@ const demoPolicy = policySchema.parse({
   allowedCurrencies: ["USD"],
 });
 
-const supportPolicy = policySchema.parse({
+export const supportPolicy = policySchema.parse({
   ...demoPolicy,
   perTransactionCapCents: 20_00,
   autoApproveLimitCents: 10_00,
+  recipientWindowLimitCents: 20_00,
   dailyBudgetCents: 40_00,
   totalBudgetCents: 200_00,
 });

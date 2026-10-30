@@ -37,6 +37,7 @@ export function SpendPanel({ agent }: { agent: Agent }) {
   const limits = [
     ["Pays by itself up to", usd(policy.autoApproveLimitCents)],
     ["Never pays more than", usd(policy.perTransactionCapCents)],
+    ["To one recipient, 24 hours", usd(policy.recipientWindowLimitCents)],
     ["Payments this hour", `${spend.paymentsLastHour} of ${policy.maxPaymentsPerHour}`],
     ["Recipients", policy.requireVerifiedRecipient ? "Verified vendors only" : "Any allowed recipient"],
     ["Never for", policy.blockedCategories.join(", ") || "No blocked categories"],

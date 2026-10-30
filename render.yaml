@@ -24,3 +24,8 @@ services:
         generateValue: true
       - key: DEMO_VENDOR_EMAILS
         sync: false
+      # A public demo password, shown on the prompt so judges aren't stuck. It only guards the sandbox.
+      - key: DASHBOARD_PASSWORD
+        value: leash-demo
+      - key: DASHBOARD_PASSWORD_HINT
+        value: leash-demo

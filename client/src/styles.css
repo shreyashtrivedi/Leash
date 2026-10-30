@@ -670,6 +670,65 @@ input {
   display: block;
 }
 
+.demo-actions {
+  flex: 0 0 auto !important;
+  display: grid;
+  gap: 8px;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(22, 24, 29, 0.45);
+}
+
+.password-dialog {
+  display: grid;
+  gap: 10px;
+  width: min(400px, 100%);
+  padding: 20px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: 0 16px 48px rgba(22, 24, 29, 0.25);
+}
+
+.password-dialog h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.password-dialog p {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.password-dialog .form-error {
+  color: var(--bad);
+}
+
+.password-dialog input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.password-hint code {
+  font-family: var(--mono);
+  color: var(--ink);
+}
+
+.password-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .demo-head {
   display: flex;
   flex-wrap: wrap;

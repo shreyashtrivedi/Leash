@@ -138,6 +138,7 @@ export function createMcpServer(agent: Agent, payments: PaymentService): McpServ
         policy: {
           per_transaction_cap: formatUsd(policy.perTransactionCapCents),
           auto_approve_limit: formatUsd(policy.autoApproveLimitCents),
+          per_recipient_limit_24h: formatUsd(policy.recipientWindowLimitCents),
           daily_budget: formatUsd(policy.dailyBudgetCents),
           total_budget: formatUsd(policy.totalBudgetCents),
           max_payments_per_hour: policy.maxPaymentsPerHour,

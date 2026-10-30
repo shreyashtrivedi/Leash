@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export interface Policy {
   perTransactionCapCents: number;
   autoApproveLimitCents: number;
+  recipientWindowLimitCents: number;
   dailyBudgetCents: number;
   totalBudgetCents: number;
   allowedRecipients: string[] | null;
@@ -75,6 +76,7 @@ export interface LeashState {
   aiEnabled: boolean;
   demo: DemoStatus;
   auditChain: { intact: boolean; events: number };
+  auth: { required: boolean; hint: string };
 }
 
 export interface PolicyDraft {
@@ -83,9 +85,46 @@ export interface PolicyDraft {
   warnings: string[];
 }
 
+const PASSWORD_KEY = "leash-dashboard-password";
+
+function readPassword(): string {
+  try {
+    return sessionStorage.getItem(PASSWORD_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function rememberPassword(value: string) {
+  try {
+    sessionStorage.setItem(PASSWORD_KEY, value);
+  } catch {
+    // Without storage, the password simply lasts until the page reloads.
+  }
+}
+
+let password = readPassword();
+let askForPassword: ((wrong: boolean) => Promise<string | null>) | null = null;
+
+export function setPasswordPrompt(prompt: typeof askForPassword) {
+  askForPassword = prompt;
+}
+
 async function send(path: string, init?: RequestInit): Promise<any> {
-  const res = await fetch(path, init);
+  const res = await fetch(path, {
+    ...init,
+    headers: { ...init?.headers, ...(password ? { "X-Leash-Password": password } : {}) },
+  });
   const body = await res.json().catch(() => ({}));
+
+  if (res.status === 401 && body.passwordRequired && askForPassword) {
+    const entered = await askForPassword(password !== "");
+    if (entered === null) throw new Error("The dashboard password is needed for that.");
+    password = entered;
+    rememberPassword(entered);
+    return send(path, init);
+  }
+
   if (!res.ok) throw new Error(body.error ?? `Request failed (${res.status})`);
   return body;
 }
@@ -108,6 +147,8 @@ export const draftPolicy = (agentId: string, text: string): Promise<PolicyDraft>
   });
 
 export const startDemo = () => send("/api/demo/run", { method: "POST" });
+
+export const resetDemo = () => send("/api/demo/reset", { method: "POST" });
 
 export type Connection = "connecting" | "live" | "offline";
 

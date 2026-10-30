@@ -7,6 +7,7 @@ import type { PaymentRequest, Policy, RuleId, SpendContext } from "./types.js";
 const policy = (overrides: Partial<Policy> = {}): Policy => ({
   perTransactionCapCents: 50_00,
   autoApproveLimitCents: 25_00,
+  recipientWindowLimitCents: 1000_00,
   dailyBudgetCents: 100_00,
   totalBudgetCents: 500_00,
   allowedRecipients: null,
@@ -31,6 +32,7 @@ const context = (overrides: Partial<SpendContext> = {}): SpendContext => ({
   spentTodayCents: 0,
   spentTotalCents: 0,
   paymentsLastHour: 0,
+  recipientRecentCents: 0,
   recipientRecord: null,
   approvedByHuman: false,
   ...overrides,
@@ -50,9 +52,9 @@ describe("decisions", () => {
     expect(result.amountUsdCents).toBe(10_00);
   });
 
-  it("returns a result with a reason for all ten rules", () => {
+  it("returns a result with a reason for all eleven rules", () => {
     const { results } = evaluate(policy(), request(), context());
-    expect(results).toHaveLength(10);
+    expect(results).toHaveLength(11);
     for (const result of results) expect(result.reason).not.toBe("");
   });
 
@@ -247,6 +249,50 @@ describe("categories", () => {
     const record = { verified: true, category: "gambling" };
     const result = evaluate(policy({ allowedCategories: ["software"] }), request(), context({ recipientRecord: record }));
     expect(result.decision).toBe("DENY");
+  });
+});
+
+describe("per-recipient limit", () => {
+  const limited = policy({ recipientWindowLimitCents: 50_00 });
+
+  it("allows a payment landing exactly on the limit", () => {
+    const result = evaluate(limited, request({ amount: "20.00" }), context({ recipientRecentCents: 30_00 }));
+    expect(result.decision).toBe("ALLOW");
+  });
+
+  it("holds one cent over the limit, even when the payment itself is small", () => {
+    const result = evaluate(limited, request({ amount: "20.01" }), context({ recipientRecentCents: 30_00 }));
+    expect(result.decision).toBe("REQUIRE_APPROVAL");
+    expect(failedRules(result)).toEqual(["recipient_window"]);
+    expect(reasonFor(result, "recipient_window")).toContain("24-hour total to $50.01");
+  });
+
+  it("lets a human approve past the limit", () => {
+    const result = evaluate(limited, request({ amount: "20.01" }), context({ recipientRecentCents: 30_00, approvedByHuman: true }));
+    expect(result.decision).toBe("ALLOW");
+  });
+
+  it("catches a large payment split into small ones", () => {
+    let sent = 0;
+    const decisions = [1, 2, 3, 4, 5].map(() => {
+      const result = evaluate(limited, request({ amount: "24.00" }), context({ recipientRecentCents: sent }));
+      if (result.decision === "ALLOW") sent += result.amountUsdCents ?? 0;
+      return result.decision;
+    });
+    expect(decisions).toEqual(["ALLOW", "ALLOW", "REQUIRE_APPROVAL", "REQUIRE_APPROVAL", "REQUIRE_APPROVAL"]);
+    expect(sent).toBe(48_00);
+  });
+
+  it("does not let a human approval override a hard rule alongside it", () => {
+    const blocked = policy({ recipientWindowLimitCents: 50_00, blockedCategories: ["software"] });
+    const result = evaluate(blocked, request(), context({ recipientRecentCents: 45_00 }));
+    expect(result.decision).toBe("DENY");
+  });
+
+  it("does not apply to refunds or invoices", () => {
+    const busy = context({ recipientRecentCents: 49_00 });
+    expect(evaluate(limited, request(), busy, "refund").decision).toBe("ALLOW");
+    expect(evaluate(limited, request(), busy, "invoice").decision).toBe("ALLOW");
   });
 });
 

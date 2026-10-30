@@ -7,6 +7,7 @@ const list = z.array(z.string().trim().toLowerCase().min(1));
 export const policySchema = z.object({
   perTransactionCapCents: cents,
   autoApproveLimitCents: cents,
+  recipientWindowLimitCents: cents,
   dailyBudgetCents: cents,
   totalBudgetCents: cents,
   allowedRecipients: list.nullable(),
@@ -37,6 +38,7 @@ export interface SpendContext {
   spentTodayCents: number;
   spentTotalCents: number;
   paymentsLastHour: number;
+  recipientRecentCents: number;
   recipientRecord: RecipientRecord | null;
   approvedByHuman: boolean;
 }
@@ -55,7 +57,8 @@ export type RuleId =
   | "verified_recipient"
   | "allowed_category"
   | "velocity_limit"
-  | "auto_approve_limit";
+  | "auto_approve_limit"
+  | "recipient_window";
 
 export interface RuleResult {
   rule: RuleId;

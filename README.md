@@ -66,10 +66,13 @@ The default model is `openai/gpt-oss-120b` on Groq, with structured JSON output.
 ## Why it's safe to trust
 
 - **Agents never hold PayPal credentials.** The stdio bridge carries only a Leash key.
-- **Deterministic engine.** A pure function, with over 130 tests across the project covering exact limits, multiple failures and budget exhaustion.
+- **Deterministic engine.** A pure function, with over 150 tests across the project covering exact limits, multiple failures and budget exhaustion.
+- **Split payments are caught.** Sending $120 as five $24 payments doesn't work. Leash tracks what each recipient has received in 24 hours, and holds the payment that goes over the limit.
 - **Agent claims aren't trusted.** Leash keeps its own vendor records, so labelling a casino as "software" gets blocked.
 - **The AI can't be talked into anything.** Agent memos never reach the model, because an agent could use one to steer the summary. Approval cards label the memo as the agent's unverified claim.
-- **Human approval can't override a block.** It only clears the auto-approve limit, and the policy is re-checked at approval time.
+- **Human approval can't override a block.** It only clears the approval limits, and the policy is re-checked at approval time.
+- **Only a human can approve.** With `DASHBOARD_PASSWORD` set, approvals and policy changes need a password that agents never receive.
+- **Unanswered approvals expire.** After 10 minutes a held payment is cancelled, so it can't quietly pay later.
 - **No race conditions on budgets.** Checking and reserving share one database transaction, so parallel calls can't both spend the same budget.
 - **No double payments.** Retries are safe, and a second click on Approve does nothing.
 - **Unknown outcomes stay counted.** If PayPal doesn't confirm a call, the budget stays reserved rather than risk overspending.
@@ -79,7 +82,7 @@ The default model is `openai/gpt-oss-120b` on Groq, with structured JSON output.
 
 **Hosted demo:** https://leash-o4p1.onrender.com
 
-Open it, click **Run demo agent**, and approve the payment when its card appears. No setup is needed. The free host sleeps when idle, so the first load can take a minute.
+Open it, click **Run demo agent**, and approve the payment when its card appears. The dashboard password is `leash-demo`, and the prompt shows it too. The hosted app is shared, so **Reset demo** restores the original rules if someone has changed them, and each run starts with a clean spending slate. The free host sleeps when idle, so the first load can take a minute.
 
 ## Run it locally
 
@@ -98,6 +101,7 @@ Then fill in `.env`:
 3. Copy the app's Client ID and Secret into `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET`.
 4. Put a sandbox **Personal** account's email in `DEMO_VENDOR_EMAILS`. This makes it a verified vendor.
 5. Optional: add a free [Groq](https://console.groq.com) key as `AI_API_KEY` for AI drafting, summaries and the demo agent.
+6. Recommended: set `DASHBOARD_PASSWORD`. Without it, anyone who can reach the server can approve payments.
 
 ```bash
 npm run dev
@@ -166,23 +170,24 @@ npx tsx scripts/create-test-capture.ts 9.50
 
 ### The policy
 
-Each agent has its own API key and policy: per-payment cap, auto-approve limit, daily and total budgets, allowed or blocked recipients and categories, verified vendors only, payments per hour, and allowed currencies.
+Each agent has its own API key and policy: per-payment cap, auto-approve limit, per-recipient limit over 24 hours, daily and total budgets, allowed or blocked recipients and categories, verified vendors only, payments per hour, and allowed currencies.
 
 | Action | Rules that apply |
 | --- | --- |
 | Payment | All of them. |
-| Refund | Everything except recipient and category rules, because the money can only return to the original payer. |
-| Invoice | Everything except budgets and the verified vendors rule, because it requests money rather than spending it. |
+| Refund | Everything except recipient, category and per-recipient rules, because the money can only return to the original payer. |
+| Invoice | Everything except budgets, the per-recipient limit and the verified vendors rule, because it requests money rather than spending it. |
 
 ## Known limits
 
 - **Claimed payouts can't be refunded.** PayPal documents no API for it, so `refund` says so.
 - **Cancelling an unclaimed payout currently fails in the sandbox.** PayPal returns a 500 error, and `refund` reports that honestly. Unclaimed payouts return to the sender after 30 days. Refunds of captured payments work.
-- **The dashboard has no login.** A real deployment must protect it, because anyone who can reach it can approve payments. The hosted demo stays open so judges can try it, and it only touches the sandbox.
+- **The dashboard has one shared password, not user accounts.** Everyone with it can approve payments. The hosted demo's password is public so judges can try it, and it only touches the sandbox. A real deployment must set its own, and shouldn't set `DASHBOARD_PASSWORD_HINT`.
+- **The per-recipient limit is per agent and per email address.** Splitting across different recipients or agents isn't caught by this rule, though budgets still apply.
 - **Budgets count the payment amount, not PayPal's fee.** The sandbox charges $0.25 per payout.
 - **Non-USD limits use fixed demo rates.** The demo policies allow USD only.
 - **The hash chain is tamper-evident, not tamper-proof.** It detects edits and gaps, but someone who rewrites the whole database and every hash wouldn't be caught.
-- **The hosted database resets on restart.** Render's free disk is temporary, so agents and policies re-seed on boot. Entries marked **Sample** are illustrative, have no PayPal IDs and never count towards budgets.
+- **The hosted database resets on restart.** Render's free disk is temporary, so agents and policies re-seed on boot. Each demo run also clears the demo agent's spend counters, and the audit log keeps the history. Entries marked **Sample** are illustrative, have no PayPal IDs and never count towards budgets.
 - **The demo agent's task names a preference.** It's told to try the annual plan first, otherwise it reads its limits and skips straight to the cheaper plan. The block that follows is still real, and the agent's code contains no Leash rules. Models vary between runs, so the run summary is built from real results rather than the model's words.
 - **Free AI quota.** Groq's limits aren't guaranteed, so summaries may be missing under heavy use. Payments are unaffected. Don't put private information in the policy box, because it's sent to the AI provider.
 

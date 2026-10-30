@@ -14,6 +14,7 @@ export type PaymentStatus =
   | "sending"
   | "executed"
   | "refunded"
+  | "expired"
   | "failed";
 
 export interface Agent {
@@ -59,6 +60,7 @@ export interface PaymentRow {
   explanation: string | null;
   created_at: string;
   reserved_at: string | null;
+  archived: number;
 }
 
 export function openDb(path: string): Db {
@@ -99,6 +101,7 @@ export function openDb(path: string): Db {
       explanation TEXT,
       created_at TEXT NOT NULL,
       reserved_at TEXT,
+      archived INTEGER NOT NULL DEFAULT 0,
       UNIQUE (agent_id, idempotency_key)
     );
     CREATE TABLE IF NOT EXISTS audit_events (
