@@ -1,0 +1,14 @@
+{
+  "name": "leash",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "workspaces": [
+    "server"
+  ],
+  "scripts": {
+    "test": "npm test --workspace server",
+    "typecheck": "npm run typecheck --workspace server",
+    "dev": "npm run dev --workspace server"
+  }
+}
