@@ -22,6 +22,7 @@ function createGroqClient(apiKey: string, model: string): AiClient {
         signal: AbortSignal.timeout(TIMEOUT_MS),
         body: JSON.stringify({
           model,
+          temperature: 0.1,
           messages: [
             { role: "system", content: system },
             { role: "user", content: prompt },

@@ -164,6 +164,7 @@ export function createPaymentService(
       const status = { ALLOW: "sending", REQUIRE_APPROVAL: "pending_approval", DENY: "blocked" }[evaluation.decision];
       const now = new Date().toISOString();
       const id = randomUUID();
+      const minorUnits = parseMinorUnits(input.amount);
 
       db.prepare(
         `INSERT INTO payments (id, agent_id, kind, target, recipient, amount, currency, amount_usd_cents, category, memo,
@@ -176,7 +177,7 @@ export function createPaymentService(
         kind: input.kind,
         target: input.target ?? null,
         recipient,
-        amount: String(input.amount),
+        amount: minorUnits === null ? String(input.amount) : (minorUnits / 100).toFixed(2),
         currency: input.currency.trim().toUpperCase(),
         amountUsdCents: evaluation.amountUsdCents,
         category: input.category,

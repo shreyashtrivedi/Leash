@@ -19,6 +19,7 @@ const SYSTEM = `You are an autonomous purchasing agent. You work one step at a t
 - arguments_json: the action's arguments as a JSON string. For finish use {"report": "..."}.
 Nothing has happened until an action's result says so, so never assume a payment went through.
 Handle the purchases in order, one action at a time, and read every result carefully before deciding what to do next.
+Attempt every purchase yourself. Never skip one because you expect it to fail or need sign-off: only a result can tell you that.
 Each purchase should be paid once. In your report, state only what the results show.`;
 
 const buildTask = (vendors: string[]) => {
@@ -26,7 +27,7 @@ const buildTask = (vendors: string[]) => {
   return `Task: settle this month's team software bills. All are category "software", in USD.
 1. Domain renewal: $12.00 to ${vendor(0)}.
 2. Analytics tool: the finance team strongly prefers the annual plan, $120.00 to ${vendor(1)}, so attempt that payment first. Only if that attempt is refused, pay the monthly plan, $20.00 to the same vendor, instead.
-3. Design tool licence: $30.00 to ${vendor(2)}. There is no cheaper option, so if this needs someone's sign-off, wait for it.`;
+3. Design tool licence: $30.00 to ${vendor(2)}. There is no cheaper option, so attempt this payment too.`;
 };
 
 type ToolResult = Record<string, any>;
@@ -92,6 +93,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<string> {
   const pollMs = options.pollMs ?? POLL_MS;
   const deadline = Date.now() + RUN_LIMIT_MS;
   let actionsTaken = 0;
+  let reviewed = false;
 
   const stepSchema = z.object({
     thought: z.string(),
@@ -121,6 +123,13 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<string> {
     // A model can claim success without doing anything, so a report needs real actions behind it.
     if (next.action === "finish" && actionsTaken === 0) {
       transcript.push("You tried to finish, but you have not taken any action yet, so nothing has been paid. Take the first action now.");
+      continue;
+    }
+
+    // One review before finishing catches a purchase the model quietly skipped.
+    if (next.action === "finish" && !reviewed) {
+      reviewed = true;
+      transcript.push("Before finishing, compare each numbered purchase in the task with the results above. If any purchase has no result, attempt it now. Otherwise, finish again.");
       continue;
     }
     onThought(next.thought);

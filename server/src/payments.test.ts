@@ -82,6 +82,11 @@ describe("payment service", () => {
     expect(payouts[0]?.senderBatchId).toBe(`leash-${result.payment_id as string}`);
   });
 
+  it("stores amounts in one format", async () => {
+    const result = await service(fakePayPal().client).pay(agent, pay("10"));
+    expect(result.amount).toBe("10.00");
+  });
+
   it("blocks without calling PayPal and explains why", async () => {
     const { client, payouts } = fakePayPal();
     const result = await service(client).pay(agent, pay("120.00"));
