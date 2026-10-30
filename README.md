@@ -77,7 +77,7 @@ The default model is `openai/gpt-oss-120b` on Groq, with structured JSON output.
 
 ## Try it
 
-**Hosted demo:** HOSTED_URL_HERE
+**Hosted demo:** https://leash-o4p1.onrender.com
 
 Open it, click **Run demo agent**, and approve the payment when its card appears. No setup is needed. The free host sleeps when idle, so the first load can take a minute.
 
@@ -86,8 +86,8 @@ Open it, click **Run demo agent**, and approve the payment when its card appears
 You need Node.js 22 or newer and a free [PayPal Developer](https://developer.paypal.com) account.
 
 ```bash
-git clone GITHUB_URL_HERE
-cd leash
+git clone https://github.com/shreyashtrivedi/Leash
+cd Leash
 npm run setup
 ```
 

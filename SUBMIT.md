@@ -1,13 +1,13 @@
 # Devpost submission kit
 
-Everything to paste into Devpost, plus the video plan. Replace `HOSTED_URL_HERE`, `GITHUB_URL_HERE` and `VIDEO_URL_HERE` first.
+Everything to paste into Devpost, plus the video plan. Replace `VIDEO_URL_HERE` once the video is on YouTube.
 
 ## Basics
 
 - **Project name:** Leash
 - **Tagline:** A payment firewall for AI agents. The AI proposes, the code decides.
-- **Hosted demo:** HOSTED_URL_HERE
-- **Code:** GITHUB_URL_HERE
+- **Hosted demo:** https://leash-o4p1.onrender.com
+- **Code:** https://github.com/shreyashtrivedi/Leash
 - **Video:** VIDEO_URL_HERE
 
 ## Project description
