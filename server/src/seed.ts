@@ -50,7 +50,7 @@ const sampleEvents = [
 
 export function seed(db: Db): void {
   saveAgent(db, { id: DEMO_AGENT_ID, name: "Research Agent", policy: demoPolicy }, config.demoAgentKey);
-  saveAgent(db, { id: SUPPORT_AGENT_ID, name: "Support Agent", policy: supportPolicy }, randomUUID());
+  saveAgent(db, { id: SUPPORT_AGENT_ID, name: "Support Agent", policy: supportPolicy }, config.supportAgentKey || randomUUID());
 
   config.demoVendorEmails.forEach((email, index) => {
     saveRecipient(db, email, VENDOR_NAMES[index] ?? `Demo Vendor ${index + 1}`, { verified: true, category: "software" });

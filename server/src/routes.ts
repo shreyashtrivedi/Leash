@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Router } from "express";
-import type { RequestHandler } from "express";
+import type { ErrorRequestHandler, RequestHandler } from "express";
 import type { AiClient } from "./ai/client.js";
 import { draftPolicy } from "./ai/draftPolicy.js";
 import type { Db } from "./db.js";
@@ -19,6 +19,14 @@ import {
 import { createMcpServer } from "./mcp/tools.js";
 import type { PaymentService } from "./payments.js";
 import { policySchema } from "./policy/types.js";
+
+// Bad requests get a plain answer, never a stack trace with file paths in it.
+export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+  const status: number = err.status ?? 500;
+  if (status >= 500) console.error(err);
+  const message = status === 413 ? "That request is too large." : status === 400 ? "That request is not valid JSON." : "Something went wrong.";
+  res.status(status).json({ error: message });
+};
 
 export function mcpRoutes(db: Db, payments: PaymentService): Router {
   const router = Router();

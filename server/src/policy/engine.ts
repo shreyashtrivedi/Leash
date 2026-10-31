@@ -30,7 +30,7 @@ function checkCurrency(policy: Policy, currency: string): RuleResult {
     allowed,
     allowed
       ? `currency ${code} is allowed`
-      : `currency ${code || "(none)"} is not in the allowlist: ${policy.allowedCurrencies.join(", ") || "none"}`,
+      : `currency ${code.slice(0, 12) || "(none)"} is not allowed. Allowed: ${policy.allowedCurrencies.join(", ") || "none"}`,
   );
 }
 
@@ -156,7 +156,7 @@ export function evaluate(
     rule(
       "valid_amount",
       minorUnits !== null,
-      minorUnits !== null ? "amount is valid" : `amount ${JSON.stringify(request.amount)} is not a valid payment amount`,
+      minorUnits !== null ? "amount is valid" : `amount ${String(JSON.stringify(request.amount)).slice(0, 40)} is not a valid payment amount`,
     ),
     currencyResult,
     checkRecipient(policy, recipient),

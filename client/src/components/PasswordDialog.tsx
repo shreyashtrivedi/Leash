@@ -18,7 +18,14 @@ export function PasswordDialog({ wrong, hint, onSubmit, onCancel }: PasswordDial
 
   return (
     <div className="overlay">
-      <form className="password-dialog" role="dialog" aria-modal="true" aria-labelledby="password-title" onSubmit={submit}>
+      <form
+        className="password-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="password-title"
+        onSubmit={submit}
+        onKeyDown={(event) => event.key === "Escape" && onCancel()}
+      >
         <h2 id="password-title">Dashboard password</h2>
         <p>Only a human with this password can approve payments or change the rules. Agents never receive it.</p>
         {hint && <p className="password-hint">Demo password: <code>{hint}</code></p>}

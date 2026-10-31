@@ -25,7 +25,7 @@ export function createMcpServer(agent: Agent, payments: PaymentService): McpServ
       inputSchema: {
         recipient: z.string().email().describe("The recipient's PayPal email address"),
         amount: z.union([z.string(), z.number()]).describe('Amount with at most 2 decimals, for example "19.99"'),
-        currency: z.string().describe("ISO currency code, for example USD"),
+        currency: z.string().min(1).max(10).describe("ISO currency code, for example USD"),
         category: z
           .string()
           .regex(/^[\w -]{1,40}$/, "Use a short plain label")
@@ -68,7 +68,11 @@ export function createMcpServer(agent: Agent, payments: PaymentService): McpServ
         "payment_id to reverse a payout Leash sent: PayPal allows this only while the payout is unclaimed. Returns " +
         '"executed", "refunded", "blocked", "pending_approval", "processing", "not_refundable", "not_found" or "failed", with a reason.',
       inputSchema: {
-        capture_id: z.string().max(40).optional().describe("The PayPal capture to refund"),
+        capture_id: z
+          .string()
+          .regex(/^[A-Za-z0-9-]{1,40}$/, "Use the capture ID exactly as PayPal gave it")
+          .optional()
+          .describe("The PayPal capture to refund"),
         payment_id: z.string().max(40).optional().describe("The Leash payment_id of a payout to reverse"),
         amount: z.union([z.string(), z.number()]).optional().describe("Part of a capture to refund. Omit for all of it"),
         reason: z.string().max(255).optional().describe("Shown to the payer"),
@@ -97,7 +101,7 @@ export function createMcpServer(agent: Agent, payments: PaymentService): McpServ
       inputSchema: {
         recipient: z.string().email().describe("The customer's email address"),
         amount: z.union([z.string(), z.number()]).describe('Amount with at most 2 decimals, for example "19.99"'),
-        currency: z.string().describe("ISO currency code, for example USD"),
+        currency: z.string().min(1).max(10).describe("ISO currency code, for example USD"),
         description: z.string().min(1).max(200).describe("What the invoice is for"),
         category: z
           .string()

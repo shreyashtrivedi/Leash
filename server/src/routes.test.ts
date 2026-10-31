@@ -7,7 +7,7 @@ import type { Db } from "./db.js";
 import { createPaymentService } from "./payments.js";
 import type { PayPalClient } from "./paypal.js";
 import type { Policy } from "./policy/types.js";
-import { approvalRoutes, dashboardRoutes } from "./routes.js";
+import { approvalRoutes, dashboardRoutes, errorHandler } from "./routes.js";
 
 const policy: Policy = {
   perTransactionCapCents: 50_00,
@@ -29,7 +29,7 @@ const paypal: PayPalClient = {
   getPayoutItem: async () => ({ status: "SUCCESS", transactionId: "TX", itemId: "ITEM", error: null }),
   cancelPayoutItem: async () => {},
   getCapture: async () => ({ value: "10.00", currency: "USD" }),
-  refundCapture: async () => ({ id: "R", status: "COMPLETED" }),
+  refundCapture: async ({ value }) => ({ id: "R", status: "COMPLETED", value }),
   sendInvoice: async () => "INV",
 };
 
@@ -62,6 +62,7 @@ describe("dashboard password", () => {
     app.use(express.json());
     app.use(dashboardRoutes(db, payments, null, demo, auth));
     app.use(approvalRoutes(payments, auth));
+    app.use(errorHandler);
     await new Promise<void>((resolve) => {
       server = app.listen(0, () => resolve());
     });
@@ -120,6 +121,22 @@ describe("dashboard password", () => {
 
     it("does not reveal the password", async () => {
       expect(await (await fetch(`${base}/api/state`)).text()).not.toContain("correct-horse");
+    });
+  });
+
+  describe("bad requests", () => {
+    beforeEach(() => start(""));
+
+    it("answers malformed JSON without a stack trace", async () => {
+      const res = await fetch(`${base}/api/demo/run`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{bad" });
+      expect(res.status).toBe(400);
+      expect(await res.text()).not.toMatch(/node_modules|\n\s+at /);
+    });
+
+    it("answers an oversized body without a stack trace", async () => {
+      const res = await post("/api/demo/run", undefined, "POST", { text: "x".repeat(300_000) });
+      expect(res.status).toBe(413);
+      expect(await res.text()).not.toMatch(/node_modules|\n\s+at /);
     });
   });
 

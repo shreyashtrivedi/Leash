@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { AllCommunityModule, ModuleRegistry, themeQuartz } from "ag-grid-community";
-import type { ColDef, ICellRendererParams } from "ag-grid-community";
+import type { ColDef, ICellRendererParams, ProcessCellForExportParams } from "ag-grid-community";
 import { AgGridReact } from "ag-grid-react";
 import type { Agent, AuditEvent } from "../api";
 import { eventMeta, formatTime } from "../format";
@@ -20,6 +20,10 @@ const theme = themeQuartz.withParams({
   rowHoverColor: "#FBF8F1",
   wrapperBorderRadius: 12,
 });
+
+// Agents can influence log text, so a spreadsheet must never run an exported cell as a formula.
+const safeForSpreadsheet = ({ value }: ProcessCellForExportParams) =>
+  typeof value === "string" && /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
 
 function EventCell({ data }: ICellRendererParams<AuditEvent>) {
   if (!data) return null;
@@ -98,7 +102,7 @@ export default function AuditGrid({ events, agents, chain }: AuditGridProps) {
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
-        <button className="button" onClick={() => grid.current?.api.exportDataAsCsv({ fileName: "leash-audit-log.csv" })}>
+        <button className="button" onClick={() => grid.current?.api.exportDataAsCsv({ fileName: "leash-audit-log.csv", processCellCallback: safeForSpreadsheet })}>
           Export CSV
         </button>
       </div>

@@ -51,7 +51,7 @@ The dashboard shows each payment travelling through a live gate that's closed by
 ### Accomplishments that we're proud of
 
 - A general-purpose AI agent, with none of the rules in its code, hits a real block, reads the reason and adapts by itself.
-- Over 150 automated tests, including parallel spending, double approvals and retries, with live end-to-end runs through real MCP clients against the PayPal sandbox.
+- Over 180 automated tests, including parallel spending, double approvals and retries, with live end-to-end runs through real MCP clients against the PayPal sandbox, and a release audit that checks every transaction with PayPal directly.
 - Failure handling built for money: if PayPal doesn't confirm a call, the budget stays reserved, because the money may have moved.
 - A clear line between AI and enforcement. If the AI vanishes, the firewall works exactly the same.
 

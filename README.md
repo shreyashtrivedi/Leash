@@ -66,7 +66,7 @@ The default model is `openai/gpt-oss-120b` on Groq, with structured JSON output.
 ## Why it's safe to trust
 
 - **Agents never hold PayPal credentials.** The stdio bridge carries only a Leash key.
-- **Deterministic engine.** A pure function, with over 150 tests across the project covering exact limits, multiple failures and budget exhaustion.
+- **Deterministic engine.** A pure function, with over 180 tests across the project covering exact limits, multiple failures and budget exhaustion.
 - **Split payments are caught.** Sending $120 as five $24 payments doesn't work. Leash tracks what each recipient has received in 24 hours, and holds the payment that goes over the limit.
 - **Agent claims aren't trusted.** Leash keeps its own vendor records, so labelling a casino as "software" gets blocked.
 - **The AI can't be talked into anything.** Agent memos never reach the model, because an agent could use one to steer the summary. Approval cards label the memo as the agent's unverified claim.
@@ -76,6 +76,7 @@ The default model is `openai/gpt-oss-120b` on Groq, with structured JSON output.
 - **No race conditions on budgets.** Checking and reserving share one database transaction, so parallel calls can't both spend the same budget.
 - **No double payments.** Retries are safe, and a second click on Approve does nothing.
 - **Unknown outcomes stay counted.** If PayPal doesn't confirm a call, the budget stays reserved rather than risk overspending.
+- **The record matches PayPal.** If PayPal refunds less than was asked for, Leash records what PayPal actually refunded.
 - **Sandbox only.** Leash refuses to start unless `PAYPAL_ENV=sandbox`, and the code contains no live PayPal URL.
 
 ## Try it
@@ -109,7 +110,7 @@ npm run dev
 
 Open http://localhost:5173. The API runs on port 3000.
 
-Run the tests with `npm test`.
+Run the tests with `npm test`. For a full audit against a running server, `server/scripts/system-check.ts` attacks every rule through real MCP, then checks each transaction with PayPal directly.
 
 ## Connect your own agent
 
@@ -148,7 +149,7 @@ Leash must be running first. The sample key is the `LEASH_DEMO_AGENT_KEY` value 
 }
 ```
 
-Both configs follow each tool's documented format. Leash itself was tested with the official MCP SDK client over both transports.
+The stdio form was tested with Claude Code, and the HTTP form with Claude Code and the official MCP SDK client. Claude Desktop and Cursor use the same two connection types, though they weren't tested directly.
 
 Then ask your agent to pay someone, and watch the dashboard.
 
@@ -170,7 +171,7 @@ npx tsx scripts/create-test-capture.ts 9.50
 
 ### The policy
 
-Each agent has its own API key and policy: per-payment cap, auto-approve limit, per-recipient limit over 24 hours, daily and total budgets, allowed or blocked recipients and categories, verified vendors only, payments per hour, and allowed currencies.
+Each agent has its own API key and policy. Set `LEASH_SUPPORT_AGENT_KEY` to connect a second agent as the Support Agent. A policy covers: per-payment cap, auto-approve limit, per-recipient limit over 24 hours, daily and total budgets, allowed or blocked recipients and categories, verified vendors only, payments per hour, and allowed currencies.
 
 | Action | Rules that apply |
 | --- | --- |

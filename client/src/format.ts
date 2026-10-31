@@ -2,6 +2,7 @@ export const usd = (cents: number) =>
   `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export function formatMoney(amount: string, currency: string) {
+  if (!Number.isFinite(Number(amount))) return "Invalid";
   const value = Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return currency === "USD" ? `$${value}` : `${value} ${currency}`;
 }

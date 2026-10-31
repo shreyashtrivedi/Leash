@@ -120,7 +120,13 @@ export function App() {
       <main className="page">
         {view === "overview" && (
           <>
-            <GateHero agentName={agent.name} run={currentRun(entries)} demo={state.demo} waiting={state.approvals.length > 0} />
+            <GateHero
+              agentName={agent.name}
+              run={currentRun(entries)}
+              demo={state.demo}
+              waiting={state.approvals.length > 0}
+              onRunStarted={() => setSelectedId(state.agents[0]?.id ?? null)}
+            />
             <div className="overview">
               <div className="overview-main">
                 {state.approvals.length > 0 && (

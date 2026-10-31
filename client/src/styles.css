@@ -1398,7 +1398,8 @@ textarea {
   }
 
   .hero-stats {
-    gap: 18px;
+    flex-wrap: wrap;
+    gap: 8px 18px;
     width: 100%;
     justify-content: space-between;
   }

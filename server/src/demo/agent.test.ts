@@ -80,6 +80,12 @@ describe("agent loop", () => {
     expect(report).not.toContain("trust me");
   });
 
+  it("describes a payment still waiting in plain words", async () => {
+    const { ai } = scriptedAi([pay, finish, finish]);
+    const { tools } = fakeTools([{ status: "rejected", amount: "30.00", currency: "USD" }]);
+    expect(await runAgentLoop({ ...options, ai, tools })).toBe("$30.00 rejected");
+  });
+
   it("waits for a held payment without spending AI calls", async () => {
     const { ai, prompts } = scriptedAi([pay, finish, finish]);
     const { tools, calls } = fakeTools([

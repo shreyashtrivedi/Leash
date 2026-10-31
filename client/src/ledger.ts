@@ -7,6 +7,7 @@ export interface PaymentEntry {
   key: string;
   kind: "payment" | "refund" | "invoice";
   amount: string;
+  usdCents: number;
   currency: string;
   payee: string;
   email: string;
@@ -77,6 +78,7 @@ function startEntry(event: AuditEvent): PaymentEntry {
     key: event.payment_id!,
     kind: event.payment_kind ?? "payment",
     amount: event.payment_amount ?? "0",
+    usdCents: event.payment_usd_cents ?? 0,
     currency: event.payment_currency ?? "USD",
     payee: event.recipient_name ?? event.payment_recipient ?? "",
     email: event.payment_recipient ?? "",
@@ -85,7 +87,7 @@ function startEntry(event: AuditEvent): PaymentEntry {
     stage: STAGES[event.payment_status ?? ""] ?? "sending",
     unclaimed: event.payment_paypal_status === "UNCLAIMED",
     transactionId: event.payment_transaction_id,
-    reason: null,
+    reason: event.payment_status === "failed" ? event.payment_error : null,
     explanation: null,
     steps: [],
     at: event.at,
@@ -145,7 +147,7 @@ export function runTotals(run: PaymentEntry[]) {
   const sum = (stages: Stage[]) =>
     run
       .filter((entry) => entry.kind !== "invoice" && stages.includes(entry.stage))
-      .reduce((total, entry) => total + Math.round(Number(entry.amount) * 100), 0);
+      .reduce((total, entry) => total + entry.usdCents, 0);
 
   return {
     paidCents: sum(["paid", "sending"]),

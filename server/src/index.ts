@@ -8,7 +8,7 @@ import { addAuditEvent, auditBus, openDb, saveAgentPolicy } from "./db.js";
 import { createDemoRunner, runDemoAgent } from "./demo/agent.js";
 import { createPaymentService } from "./payments.js";
 import { createPayPalClient } from "./paypal.js";
-import { approvalRoutes, dashboardRoutes, mcpRoutes } from "./routes.js";
+import { approvalRoutes, dashboardRoutes, errorHandler, mcpRoutes } from "./routes.js";
 import { DEMO_AGENT_ID, demoPolicy, seed, SUPPORT_AGENT_ID, supportPolicy } from "./seed.js";
 
 const db = openDb(config.dbPath);
@@ -51,10 +51,14 @@ if (!auth.password) console.warn("DASHBOARD_PASSWORD is not set, so anyone who c
 setInterval(() => payments.expireApprovals(), 30_000).unref();
 
 const app = express();
+app.disable("x-powered-by");
 app.use(express.json());
 app.use(mcpRoutes(db, payments));
 app.use(dashboardRoutes(db, payments, ai, demo, auth));
 app.use(approvalRoutes(payments, auth));
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "Not found." });
+});
 
 const clientDist = fileURLToPath(new URL("../../client/dist", import.meta.url));
 if (existsSync(clientDist)) {
@@ -62,6 +66,12 @@ if (existsSync(clientDist)) {
   app.get(/.*/, (_req, res) => res.sendFile("index.html", { root: clientDist }));
 }
 
-app.listen(config.port, () => {
+app.use(errorHandler);
+
+app.listen(config.port, (err) => {
+  if (err) {
+    console.error(`Leash could not start on port ${config.port}: ${err.message}`);
+    process.exit(1);
+  }
   console.log(`Leash is running on http://localhost:${config.port} (PayPal sandbox only)`);
 });

@@ -107,9 +107,10 @@ interface GateHeroProps {
   run: PaymentEntry[];
   demo: DemoStatus;
   waiting: boolean;
+  onRunStarted: () => void;
 }
 
-export function GateHero({ agentName, run, demo, waiting }: GateHeroProps) {
+export function GateHero({ agentName, run, demo, waiting, onRunStarted }: GateHeroProps) {
   const [error, setError] = useState<string | null>(null);
   const totals = runTotals(run);
 
@@ -174,7 +175,11 @@ export function GateHero({ agentName, run, demo, waiting }: GateHeroProps) {
             {(error ?? demo.error) && <p className="hero-error">{error ?? demo.error}</p>}
           </div>
           <div className="hero-actions">
-            <button className="button light" disabled={demo.running} onClick={() => perform(startDemo)}>
+            <button
+              className="button light"
+              disabled={demo.running}
+              onClick={() => perform(() => startDemo().then(onRunStarted))}
+            >
               {demo.running ? "Agent running" : "Run demo agent"}
             </button>
             <button

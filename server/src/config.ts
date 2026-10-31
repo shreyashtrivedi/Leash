@@ -26,6 +26,7 @@ export const config = {
   port: Number(process.env.PORT ?? 3000),
   dbPath: process.env.LEASH_DB ?? fileURLToPath(new URL("../leash.db", import.meta.url)),
   demoAgentKey: process.env.LEASH_DEMO_AGENT_KEY ?? "leash-demo-key",
+  supportAgentKey: process.env.LEASH_SUPPORT_AGENT_KEY ?? "",
   demoVendorEmails: (process.env.DEMO_VENDOR_EMAILS ?? "")
     .split(",")
     .map((email) => email.trim().toLowerCase())

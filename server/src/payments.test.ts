@@ -46,8 +46,8 @@ function fakePayPal(overrides: Partial<PayPalClient> = {}) {
     async getCapture() {
       return { value: "10.00", currency: "USD" };
     },
-    async refundCapture() {
-      return { id: "REFUND1", status: "COMPLETED" };
+    async refundCapture({ value }) {
+      return { id: "REFUND1", status: "COMPLETED", value };
     },
     async sendInvoice() {
       return "INV2-1";
@@ -382,6 +382,57 @@ describe("payment service", () => {
     });
   });
 
+  describe("time windows", () => {
+    const age = (hours: number) =>
+      db
+        .prepare("UPDATE payments SET reserved_at = ?, created_at = ?")
+        .run(new Date(Date.now() - hours * 3_600_000).toISOString(), new Date(Date.now() - hours * 3_600_000).toISOString());
+
+    it("stops counting towards the hourly rate after an hour", async () => {
+      const payments = service(fakePayPal().client);
+      await payments.pay(agent, pay("10.00"));
+      expect(payments.spendSummary(agent).paymentsLastHour).toBe(1);
+      age(1.1);
+      expect(payments.spendSummary(agent).paymentsLastHour).toBe(0);
+    });
+
+    it("stops counting towards the per-recipient limit after 24 hours", async () => {
+      saveAgentPolicy(db, "a1", { ...policy, dailyBudgetCents: 500_00, recipientWindowLimitCents: 50_00 });
+      const strict = getAgent(db, "a1")!;
+      const payments = service(fakePayPal().client);
+      await payments.pay(strict, pay("24.00"));
+      await payments.pay(strict, pay("24.00"));
+      expect((await payments.pay(strict, pay("24.00"))).status).toBe("pending_approval");
+      db.prepare("UPDATE payments SET status = 'rejected' WHERE status = 'pending_approval'").run();
+      age(25);
+      expect((await payments.pay(strict, pay("24.00"))).status).toBe("executed");
+    });
+
+    it("clears the daily budget on a new day but keeps the total", async () => {
+      const payments = service(fakePayPal().client);
+      await payments.pay(agent, pay("25.00"));
+      age(48);
+      const spend = payments.spendSummary(agent);
+      expect(spend.spentTodayCents).toBe(0);
+      expect(spend.spentTotalCents).toBe(25_00);
+    });
+  });
+
+  describe("agent-written amounts", () => {
+    it("never stores an invalid amount as written", async () => {
+      const payments = service(fakePayPal().client);
+      const result = await payments.pay(agent, pay('=HYPERLINK("http://evil.example")'));
+      expect(result).toMatchObject({ status: "blocked", amount: "invalid" });
+      const summaries = db.prepare("SELECT summary FROM audit_events").pluck().all() as string[];
+      expect(summaries.every((summary) => summary.startsWith("invalid USD"))).toBe(true);
+    });
+
+    it("keeps a huge invalid amount short", async () => {
+      const result = await service(fakePayPal().client).pay(agent, pay("9".repeat(5000)));
+      expect(JSON.stringify(result).length).toBeLessThan(1000);
+    });
+  });
+
   describe("approval expiry", () => {
     it("expires an unanswered approval and never sends it", async () => {
       const { client, payouts } = fakePayPal();
@@ -438,7 +489,7 @@ describe("payment service", () => {
       const { client } = fakePayPal({
         refundCapture: async (input) => {
           inputs.push(input);
-          return { id: "R1", status: "COMPLETED" };
+          return { id: "R1", status: "COMPLETED", value: input.value };
         },
       });
       const result = await service(client).refundCapture(agent, { captureId: "CAP1", reason: "Damaged" });
@@ -451,9 +502,9 @@ describe("payment service", () => {
       let refunds = 0;
       const { client } = fakePayPal({
         getCapture: async () => ({ value: "30.00", currency: "USD" }),
-        refundCapture: async () => {
+        refundCapture: async ({ value }) => {
           refunds++;
-          return { id: "R1", status: "COMPLETED" };
+          return { id: "R1", status: "COMPLETED", value };
         },
       });
       const payments = service(client);
@@ -476,6 +527,30 @@ describe("payment service", () => {
       await payments.refundCapture(agent, { captureId: "CAP2", amount: "25.00" });
       const third = await payments.refundCapture(agent, { captureId: "CAP3", amount: "1.00" });
       expect(third.status).toBe("blocked");
+    });
+
+    it("records what PayPal really refunded, not what was asked for", async () => {
+      const { client } = fakePayPal({
+        getCapture: async () => ({ value: "20.00", currency: "USD" }),
+        refundCapture: async () => ({ id: "R1", status: "COMPLETED", value: "15.00" }),
+      });
+      const payments = service(client);
+      const result = await payments.refundCapture(agent, { captureId: "CAP1", amount: "20.00" });
+      expect(result).toMatchObject({ status: "executed", amount: "15.00" });
+      expect(payments.spendSummary(agent).spentTodayCents).toBe(15_00);
+      const summary = db.prepare("SELECT summary FROM audit_events WHERE type = 'refund.executed'").pluck().get();
+      expect(summary).toContain("15.00 USD");
+    });
+
+    it("doesn't call a PayPal login failure a missing capture", async () => {
+      const { client } = fakePayPal({
+        getCapture: async () => {
+          throw new PayPalError(401, "invalid_client", "PayPal authentication failed");
+        },
+      });
+      const result = await service(client).refundCapture(agent, { captureId: "CAP1" });
+      expect(result.status).toBe("failed");
+      expect(result.reason).toContain("authentication failed");
     });
 
     it("reports an unknown capture", async () => {

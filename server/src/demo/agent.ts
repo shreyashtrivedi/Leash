@@ -99,7 +99,12 @@ export interface DemoAgentOptions extends Omit<AgentLoopOptions, "tools"> {
 // model can describe payments that never happened.
 function describeOutcome(result: ToolResult): string {
   const money = result.currency === "USD" ? `$${result.amount}` : `${result.amount} ${result.currency}`;
-  return `${money} ${result.status === "executed" ? "paid" : result.status}`;
+  const labels: Record<string, string> = {
+    executed: "paid",
+    pending_approval: "still waiting for approval",
+    processing: "still processing",
+  };
+  return `${money} ${labels[result.status] ?? result.status}`;
 }
 
 function summarize(outcomes: string[]): string {

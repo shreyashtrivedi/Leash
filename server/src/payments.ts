@@ -5,7 +5,7 @@ import { addAuditEvent, auditBus, getAgent, getRecipient, parseRuleResults } fro
 import { PayPalError } from "./paypal.js";
 import type { PayPalClient } from "./paypal.js";
 import { APPROVAL_RULES, evaluate } from "./policy/engine.js";
-import { parseMinorUnits } from "./policy/money.js";
+import { parseMinorUnits, toUsdCents } from "./policy/money.js";
 import type { Evaluation, PaymentKind, PaymentRequest, SpendContext } from "./policy/types.js";
 
 export interface PayInput extends PaymentRequest {
@@ -190,7 +190,8 @@ export function createPaymentService(
         kind: input.kind,
         target: input.target ?? null,
         recipient,
-        amount: minorUnits === null ? String(input.amount) : (minorUnits / 100).toFixed(2),
+        // Agent input that isn't a real amount never reaches the log or the dashboard as written.
+        amount: minorUnits === null ? "invalid" : (minorUnits / 100).toFixed(2),
         currency: input.currency.trim().toUpperCase(),
         amountUsdCents: evaluation.amountUsdCents,
         category: input.category,
@@ -316,7 +317,7 @@ export function createPaymentService(
         recipient: row.recipient,
         value,
         currency: row.currency,
-        note: row.memo || "Payment from a Leash agent",
+        note: row.memo,
       }),
     );
     if (!batchId) return;
@@ -338,7 +339,15 @@ export function createPaymentService(
       const refund = await callPayPal(row, () =>
         paypal.refundCapture({ captureId: row.target!, value, currency: row.currency, note: row.memo, requestId: row.id }),
       );
-      if (refund) finish(row, "refund.executed", refund.id, refund.status, `${describe(row)}, PayPal refund ${refund.id}`);
+      if (refund) {
+        // PayPal caps a refund at what's left of the capture, so its figure is the true one.
+        const refunded = parseMinorUnits(refund.value);
+        if (refunded !== null && refund.value !== row.amount) {
+          setFields(id, { amount: refund.value, amount_usd_cents: toUsdCents(refunded, row.currency) });
+        }
+        const settled = getRow(id)!;
+        finish(settled, "refund.executed", refund.id, refund.status, `${describe(settled)}, PayPal refund ${refund.id}`);
+      }
     } else if (row.kind === "invoice") {
       const invoiceId = await callPayPal(row, () =>
         paypal.sendInvoice({ requestId: row.id, recipient: row.recipient, value, currency: row.currency, description: row.memo }),
@@ -415,10 +424,11 @@ export function createPaymentService(
       try {
         capture = await paypal.getCapture(input.captureId);
       } catch (err) {
-        if (err instanceof PayPalError && err.status < 500) {
+        if (err instanceof PayPalError && [400, 404].includes(err.status)) {
           return { status: "not_found", reason: `PayPal has no capture ${input.captureId} for this account.` };
         }
-        throw err;
+        const message = err instanceof Error ? err.message : String(err);
+        return { status: "failed", reason: `PayPal could not look up this capture: ${message}` };
       }
       return submit(agent, {
         kind: "refund",

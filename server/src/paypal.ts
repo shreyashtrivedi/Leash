@@ -47,8 +47,20 @@ export interface PayPalClient {
   getPayoutItem(batchId: string): Promise<PayoutItem | null>;
   cancelPayoutItem(itemId: string): Promise<void>;
   getCapture(captureId: string): Promise<{ value: string; currency: string }>;
-  refundCapture(input: RefundInput): Promise<{ id: string; status: string }>;
+  refundCapture(input: RefundInput): Promise<{ id: string; status: string; value: string }>;
   sendInvoice(input: InvoiceInput): Promise<string>;
+}
+
+// PayPal's firewall answers an empty 403 or 406 to text that looks like an attack. An
+// agent's note is optional, so it shouldn't be able to stop a payment the policy allowed.
+async function withSafeText<T>(send: (text: string) => Promise<T>, text: string, neutral: string): Promise<T> {
+  try {
+    return await send(text || neutral);
+  } catch (err) {
+    const refusedByFirewall = err instanceof PayPalError && [403, 406].includes(err.status) && err.name === "PAYPAL_ERROR";
+    if (refusedByFirewall && text) return send(neutral);
+    throw err;
+  }
 }
 
 export function createPayPalClient(clientId: string, clientSecret: string): PayPalClient {
@@ -63,7 +75,7 @@ export function createPayPalClient(clientId: string, clientSecret: string): PayP
       headers: { Authorization: `Basic ${credentials}` },
       body: new URLSearchParams({ grant_type: "client_credentials" }),
     });
-    const body: any = await res.json();
+    const body: any = await res.json().catch(() => ({}));
     if (!res.ok) throw new PayPalError(res.status, body.error ?? "AUTH_FAILED", "PayPal authentication failed");
 
     cachedToken = { value: body.access_token, expiresAt: Date.now() + (body.expires_in - 60) * 1000 };
@@ -83,7 +95,13 @@ export function createPayPalClient(clientId: string, clientSecret: string): PayP
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const text = await res.text();
-    const parsed = text ? JSON.parse(text) : {};
+    let parsed: any = {};
+    try {
+      parsed = text ? JSON.parse(text) : {};
+    } catch {
+      // Gateways can answer with an HTML page, which says nothing about the payment.
+      if (res.ok) throw new PayPalError(502, "INVALID_RESPONSE", "PayPal sent a response Leash could not read");
+    }
     if (!res.ok) {
       throw new PayPalError(res.status, parsed.name ?? "PAYPAL_ERROR", parsed.message ?? `PayPal returned ${res.status}`);
     }
@@ -92,19 +110,24 @@ export function createPayPalClient(clientId: string, clientSecret: string): PayP
 
   return {
     async createPayout({ senderBatchId, recipient, value, currency, note }) {
-      const body = await request("POST", "/v1/payments/payouts", {
-        sender_batch_header: { sender_batch_id: senderBatchId, email_subject: "Payment from a Leash agent" },
-        items: [
-          {
-            recipient_type: "EMAIL",
-            amount: { value, currency },
-            receiver: recipient,
-            note,
-            sender_item_id: senderBatchId.slice(0, 63),
-            purpose: "SERVICES",
-          },
-        ],
-      });
+      const body = await withSafeText(
+        (text) =>
+          request("POST", "/v1/payments/payouts", {
+            sender_batch_header: { sender_batch_id: senderBatchId, email_subject: "Payment from a Leash agent" },
+            items: [
+              {
+                recipient_type: "EMAIL",
+                amount: { value, currency },
+                receiver: recipient,
+                note: text,
+                sender_item_id: senderBatchId.slice(0, 63),
+                purpose: "SERVICES",
+              },
+            ],
+          }),
+        note,
+        "Payment from a Leash agent",
+      );
       return body.batch_header.payout_batch_id;
     },
 
@@ -131,32 +154,36 @@ export function createPayPalClient(clientId: string, clientSecret: string): PayP
     },
 
     async refundCapture({ captureId, value, currency, note, requestId }) {
-      const body = await request(
-        "POST",
-        `/v2/payments/captures/${encodeURIComponent(captureId)}/refund`,
-        { amount: { value, currency_code: currency }, note_to_payer: note || "Refund from a Leash agent" },
-        requestId,
+      const body = await withSafeText(
+        (text) =>
+          request(
+            "POST",
+            `/v2/payments/captures/${encodeURIComponent(captureId)}/refund`,
+            { amount: { value, currency_code: currency }, note_to_payer: text },
+            requestId,
+          ),
+        note,
+        "Refund from a Leash agent",
       );
-      return { id: body.id, status: body.status };
+      return { id: body.id, status: body.status, value: body.amount?.value ?? value };
     },
 
     // PayPal drafts an invoice first, then sends it as a second step.
     async sendInvoice({ requestId, recipient, value, currency, description }) {
-      const draft = await request(
-        "POST",
-        "/v2/invoicing/invoices",
-        {
-          detail: { currency_code: currency, note: "Sent by a Leash agent" },
-          primary_recipients: [{ billing_info: { email_address: recipient } }],
-          items: [
+      const draft = await withSafeText(
+        (text) =>
+          request(
+            "POST",
+            "/v2/invoicing/invoices",
             {
-              name: (description || "Invoice from a Leash agent").slice(0, 200),
-              quantity: "1",
-              unit_amount: { currency_code: currency, value },
+              detail: { currency_code: currency, note: "Sent by a Leash agent" },
+              primary_recipients: [{ billing_info: { email_address: recipient } }],
+              items: [{ name: text.slice(0, 200), quantity: "1", unit_amount: { currency_code: currency, value } }],
             },
-          ],
-        },
-        requestId,
+            requestId,
+          ),
+        description,
+        "Invoice from a Leash agent",
       );
       await request("POST", `/v2/invoicing/invoices/${draft.id}/send`, { send_to_recipient: true }, `${requestId}-send`);
       return draft.id;
