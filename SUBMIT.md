@@ -1,6 +1,6 @@
 # Devpost submission kit
 
-Everything to paste into Devpost, plus the video plan. Replace `VIDEO_URL_HERE` once the video is on YouTube.
+Everything to paste into Devpost, plus the video plan.
 
 ## Basics
 
@@ -8,7 +8,7 @@ Everything to paste into Devpost, plus the video plan. Replace `VIDEO_URL_HERE` 
 - **Tagline:** A payment firewall for AI agents. The AI proposes, the code decides.
 - **Hosted demo:** https://leash-o4p1.onrender.com
 - **Code:** https://github.com/shreyashtrivedi/Leash
-- **Video:** VIDEO_URL_HERE
+- **Video:** https://youtu.be/jaWiVAbUp8Y
 
 ## Project description
 
