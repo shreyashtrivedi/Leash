@@ -1,4 +1,4 @@
-// Stage 1: proves Leash can move real sandbox money with no buyer click.
+// Proves Leash can move real sandbox money with no buyer click.
 // Run: node --env-file=.env --experimental-strip-types server/scripts/paypal-smoke.ts <recipient-email>
 
 const BASE_URL = "https://api-m.sandbox.paypal.com";
@@ -56,7 +56,7 @@ async function sendPayout(token: string, receiver: string, value: string) {
         recipient_type: "EMAIL",
         amount: { value, currency: "USD" },
         receiver,
-        note: "Leash Stage 1 smoke test",
+        note: "Leash smoke test",
         sender_item_id: "smoke-item-1",
         purpose: "SERVICES",
       },
@@ -103,7 +103,7 @@ async function main() {
 
   console.log("Q5 invoice");
   const draft = await api(token, "POST", "/v2/invoicing/invoices", {
-    detail: { currency_code: "USD", note: "Leash Stage 1 smoke test" },
+    detail: { currency_code: "USD", note: "Leash smoke test" },
     primary_recipients: [{ billing_info: { email_address: recipient } }],
     items: [{ name: "Smoke test", quantity: "1", unit_amount: { currency_code: "USD", value: "2.00" } }],
   });

@@ -1,4 +1,4 @@
-// Stage 6: real AI calls for policy drafting and explanations.
+// Makes real AI calls for policy drafting and decision explanations.
 // Run from server/: npx tsx scripts/ai-smoke.ts
 import { createAiClient } from "../src/ai/client.js";
 import { draftPolicy } from "../src/ai/draftPolicy.js";

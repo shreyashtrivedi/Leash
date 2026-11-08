@@ -1,4 +1,4 @@
-// Stage 8: drives refund and create_invoice through real MCP against a running server.
+// Drives refund and create_invoice through real MCP against a running server.
 // Sends real sandbox transactions.
 // Run from server/: npx tsx scripts/mcp-refund-e2e.ts <verified-vendor-email> <small-capture-id> <held-capture-id>
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";

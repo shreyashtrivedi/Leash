@@ -63,6 +63,18 @@ The default model is `openai/gpt-oss-120b` on Groq, with structured JSON output.
 
 **Without an AI key, enforcement works exactly the same.** You lose drafting, summaries and the demo agent button.
 
+## Built with
+
+| Tool | What it does in Leash |
+| --- | --- |
+| PayPal Payouts, Payments and Invoicing APIs (sandbox) | Every payment, refund and invoice. See [How PayPal is used](#how-paypal-is-used). |
+| Groq, running `openai/gpt-oss-120b` | Policy drafting, decision summaries and the demo agent. See [How AI is used](#how-ai-is-used). |
+| Model Context Protocol (official TypeScript SDK) | How agents connect to Leash's tools, over HTTP or a stdio bridge. |
+| AG Grid (sponsor) | The audit log, with sorting, filtering, search and CSV export. See [AuditGrid.tsx](client/src/components/AuditGrid.tsx). |
+| Render (sponsor) | Hosts the live demo, deployed from the [render.yaml](render.yaml) blueprint. |
+| TypeScript, Node.js, Express, SQLite, React, Vite | The server, storage and dashboard. |
+| Claude Code (Claude Opus 5.5) | A coding assistant used while building the project. It isn't part of the running product. |
+
 ## Why it's safe to trust
 
 - **Agents never hold PayPal credentials.** The stdio bridge carries only a Leash key.

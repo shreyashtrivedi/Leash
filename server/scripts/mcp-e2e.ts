@@ -1,4 +1,4 @@
-// Stage 3: drives a running Leash server with the real MCP client, over both transports.
+// Drives a running Leash server with the real MCP client, over both transports.
 // Needs `npm run dev` running. Sends real sandbox payments.
 // Run: npx tsx server/scripts/mcp-e2e.ts <verified-vendor-email>
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -16,7 +16,7 @@ const call = async (client: Client, name: string, args: Record<string, unknown>)
   return result.structuredContent ?? result;
 };
 
-const payment = (amount: string) => ({ recipient: vendor, amount, currency: "USD", category: "software", memo: "Leash Stage 3 test" });
+const payment = (amount: string) => ({ recipient: vendor, amount, currency: "USD", category: "software", memo: "Leash MCP test" });
 
 async function run(label: string, client: Client) {
   await client.connect(
